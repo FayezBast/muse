@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Book a Class | MUSE Pilates</title>
+    <meta
+      name="description"
+      content="Book reformer Pilates classes and private sessions at MUSE Pilates, now open for bookings."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="page-booking">
+    <div class="page-noise" aria-hidden="true"></div>
+    <div class="cursor-glow" aria-hidden="true"></div>
+    <div class="orb orb-left" aria-hidden="true"></div>
+    <div class="orb orb-right" aria-hidden="true"></div>
+
+    <header class="topbar booking-pagebar">
+      <a class="brand" href="#schedule" aria-label="MUSE booking page">
+        <span class="brand-mark">MUSE</span>
+      </a>
+      <nav class="topnav" aria-label="Booking navigation">
+        <a href="#schedule">Schedule</a>
+        <a href="#classes">Classes</a>
+        <a href="#reserve">Book</a>
+      </nav>
+      <a class="button button-ghost" href="#reserve">Reserve A Class</a>
+    </header>
+
+    <main class="live-booking-page">
+      <section class="live-hero" id="schedule">
+        <div class="live-hero-stage reveal">
+          <div class="live-hero-copy">
+            <p class="eyebrow">Now Open</p>
+            <h1>MUSE</h1>
+            <p class="live-hero-subtitle">Book Your Practice</p>
+            <p class="lede">
+              Reformer classes and private sessions are open for booking.
+              Choose a day, pick your class, and reserve your spot.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-solid" href="#classes">View Schedule</a>
+              <a class="button button-link" href="#reserve">Book Now</a>
+            </div>
+            <div class="booking-pill-row" aria-label="Studio highlights">
+              <span class="booking-pill">Open Monday to Saturday</span>
+              <span class="booking-pill">Small groups, 10 guests max</span>
+              <span class="booking-pill">Private sessions by request</span>
+            </div>
+          </div>
+
+          <div class="live-hero-panel">
+            <p class="paper-label">Today At MUSE</p>
+            <div class="hero-shifts">
+              <article class="hero-shift">
+                <span>06:30 AM</span>
+                <strong>Sunrise Flow</strong>
+              </article>
+              <article class="hero-shift">
+                <span>08:00 AM</span>
+                <strong>Reformer Sculpt</strong>
+              </article>
+              <article class="hero-shift">
+                <span>06:00 PM</span>
+                <strong>Balance Flow</strong>
+              </article>
+            </div>
+            <div class="hero-panel-note">
+              Doors open 15 minutes before class. Grip socks recommended for
+              all studio sessions.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="schedule-board section-grid" id="classes">
+        <div class="section-heading reveal">
+          <p class="eyebrow">Daily Schedule</p>
+          <h2>Choose a day, then reserve the class that fits your pace.</h2>
+        </div>
+
+        <div class="schedule-header-bar reveal">
+          <div
+            class="date-selector"
+            id="date-selector"
+            aria-label="Choose a booking date"
+          ></div>
+        </div>
+
+        <div class="schedule-shell-live">
+          <aside class="schedule-summary reveal">
+            <p class="eyebrow">Studio Details</p>
+            <h2 id="selected-date-label">Today at MUSE</h2>
+            <p class="section-text" id="selected-date-copy">
+              Reformer classes, restore sessions, and private bookings are
+              available throughout the day.
+            </p>
+
+            <div class="status-grid" aria-label="Studio booking details">
+              <article class="status-card">
+                <strong>10</strong>
+                <span>Guests max</span>
+              </article>
+              <article class="status-card">
+                <strong>4h</strong>
+                <span>Cancel window</span>
+              </article>
+              <article class="status-card">
+                <strong>1:1</strong>
+                <span>Private option</span>
+              </article>
+            </div>
+
+            <ul class="studio-points">
+              <li>Bookings are confirmed by email after request.</li>
+              <li>Cancellations are accepted up to 4 hours before class.</li>
+              <li>Private sessions can be requested directly from the form below.</li>
+            </ul>
+          </aside>
+
+          <div class="class-list reveal" id="class-list" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="reserve-live section-grid" id="reserve">
+        <div class="reserve-live-shell">
+          <div class="reserve-live-copy reveal">
+            <p class="eyebrow">Reserve Your Spot</p>
+            <h2>Send your booking request.</h2>
+            <p class="section-text">
+              Select a class from the schedule above or choose manually below.
+              We will confirm your booking and send final arrival details by
+              email.
+            </p>
+            <p class="booking-selection-note" id="booking-selection-note">
+              Select a class above to prefill the form, or choose your class
+              manually below.
+            </p>
+            <ul class="studio-points">
+              <li>First visit? Arrive 10 minutes before class starts.</li>
+              <li>Need a different time? Add it in the notes field.</li>
+              <li>Private sessions are arranged based on studio availability.</li>
+            </ul>
+          </div>
+
+          <div class="reserve-live-card reveal">
+            <form class="booking-form live-booking-form" id="booking-form">
+              <input
+                id="booking-request-type"
+                name="requestType"
+                type="hidden"
+                value="booking"
+              />
+              <div class="booking-form-grid">
+                <label class="field" for="booking-name">
+                  <span class="field-label">Full name</span>
+                  <input
+                    id="booking-name"
+                    name="name"
+                    type="text"
+                    placeholder="Your full name"
+                    required
+                  />
+                </label>
+
+                <label class="field" for="booking-email">
+                  <span class="field-label">Email address</span>
+                  <input
+                    id="booking-email"
+                    name="email"
+                    type="email"
+                    placeholder="name@example.com"
+                    required
+                  />
+                </label>
+
+                <label class="field" for="booking-phone">
+                  <span class="field-label">Phone number</span>
+                  <input
+                    id="booking-phone"
+                    name="phone"
+                    type="tel"
+                    placeholder="Your phone number"
+                  />
+                </label>
+
+                <label class="field" for="booking-session">
+                  <span class="field-label">Class type</span>
+                  <select id="booking-session" name="session" required>
+                    <option value="">Choose a class</option>
+                    <option value="Sunrise Flow">Sunrise Flow</option>
+                    <option value="Reformer Sculpt">Reformer Sculpt</option>
+                    <option value="Mat Foundations">Mat Foundations</option>
+                    <option value="Power Pilates">Power Pilates</option>
+                    <option value="Balance Flow">Balance Flow</option>
+                    <option value="Evening Stretch">Evening Stretch</option>
+                    <option value="Private Session">Private Session</option>
+                  </select>
+                </label>
+
+                <label class="field" for="booking-date">
+                  <span class="field-label">Preferred date</span>
+                  <input id="booking-date" name="date" type="date" required />
+                </label>
+
+                <label class="field" for="booking-time">
+                  <span class="field-label">Preferred time</span>
+                  <select id="booking-time" name="time" required>
+                    <option value="">Choose a time</option>
+                    <option value="06:30 AM">06:30 AM</option>
+                    <option value="07:30 AM">07:30 AM</option>
+                    <option value="08:00 AM">08:00 AM</option>
+                    <option value="09:00 AM">09:00 AM</option>
+                    <option value="09:30 AM">09:30 AM</option>
+                    <option value="10:00 AM">10:00 AM</option>
+                    <option value="10:30 AM">10:30 AM</option>
+                    <option value="12:00 PM">12:00 PM</option>
+                    <option value="12:30 PM">12:30 PM</option>
+                    <option value="04:30 PM">04:30 PM</option>
+                    <option value="06:00 PM">06:00 PM</option>
+                    <option value="06:30 PM">06:30 PM</option>
+                    <option value="07:30 PM">07:30 PM</option>
+                    <option value="Private Session By Arrangement">
+                      Private Session By Arrangement
+                    </option>
+                  </select>
+                </label>
+
+                <label class="field field-full" for="booking-notes">
+                  <span class="field-label">Notes</span>
+                  <textarea
+                    id="booking-notes"
+                    name="notes"
+                    placeholder="Any injuries, preferences, or scheduling notes?"
+                  ></textarea>
+                </label>
+              </div>
+
+              <div class="booking-form-actions">
+                <button class="button button-solid" type="submit">
+                  Send Booking Request
+                </button>
+                <p class="microcopy">
+                  We will confirm availability shortly by email.
+                </p>
+              </div>
+            </form>
+
+            <p class="form-note" id="booking-note" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>MUSE Pilates</p>
+      <p>Now open for bookings. Reformer classes and private sessions available.</p>
+    </footer>
+
+    <script src="./main.js"></script>
+    <script src="./booking.js"></script>
+  </body>
+</html>
