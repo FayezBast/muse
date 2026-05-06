@@ -27,11 +27,11 @@
         <span class="brand-mark">MUSE</span>
       </a>
       <nav class="topnav" aria-label="Booking navigation">
+        <a href="#packages">Packages</a>
         <a href="#schedule">Schedule</a>
         <a href="#classes">Classes</a>
-        <a href="#reserve">Book</a>
+        <a href="#booking-modal" data-open-booking>Book</a>
       </nav>
-      <a class="button button-ghost" href="#reserve">Reserve A Class</a>
     </header>
 
     <main class="live-booking-page">
@@ -47,7 +47,7 @@
             </p>
             <div class="hero-actions">
               <a class="button button-solid" href="#classes">View Schedule</a>
-              <a class="button button-link" href="#reserve">Book Now</a>
+              <span class="button button-link button-static" aria-disabled="true">Book Now</span>
             </div>
             <div class="booking-pill-row" aria-label="Studio highlights">
               <span class="booking-pill">Open Monday to Saturday</span>
@@ -77,6 +77,39 @@
               all studio sessions.
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="packages-board section-grid" id="packages">
+        <div class="section-heading reveal">
+          <p class="eyebrow">Packages</p>
+          <h2>Choose a class pack and enjoy an extra session on us.</h2>
+          <p class="section-text">
+            We currently offer two package options for guests booking multiple
+            classes.
+          </p>
+        </div>
+
+        <div class="packages-grid">
+          <article class="package-card reveal">
+            <p class="package-kicker">Package One</p>
+            <h3>4 Classes</h3>
+            <p class="package-bonus">5th class free</p>
+            <ul class="package-points">
+              <li>Pay for 4 classes and receive 1 extra class free.</li>
+              <li>Ideal if you want a shorter commitment to start.</li>
+            </ul>
+          </article>
+
+          <article class="package-card package-card-featured reveal">
+            <p class="package-kicker">Package Two</p>
+            <h3>8 Classes</h3>
+            <p class="package-bonus">9th class free</p>
+            <ul class="package-points">
+              <li>Pay for 8 classes and receive 1 extra class free.</li>
+              <li>Best for guests planning a more consistent routine.</li>
+            </ul>
+          </article>
         </div>
       </section>
 
@@ -121,27 +154,44 @@
             <ul class="studio-points">
               <li>Bookings are confirmed by email after request.</li>
               <li>Cancellations are accepted up to 4 hours before class.</li>
-              <li>Private sessions can be requested directly from the form below.</li>
+              <li>Private sessions can be requested directly from the booking popup.</li>
             </ul>
           </aside>
 
           <div class="class-list reveal" id="class-list" aria-live="polite"></div>
         </div>
       </section>
+    </main>
 
-      <section class="reserve-live section-grid" id="reserve">
-        <div class="reserve-live-shell">
-          <div class="reserve-live-copy reveal">
+    <div class="booking-modal" id="booking-modal" hidden>
+      <div class="booking-modal-backdrop" data-close-booking></div>
+      <div
+        class="booking-modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="booking-modal-title"
+        tabindex="-1"
+      >
+        <button
+          class="booking-modal-close"
+          type="button"
+          aria-label="Close booking popup"
+          data-close-booking
+        >
+          Close
+        </button>
+
+        <div class="booking-modal-shell">
+          <div class="booking-modal-copy">
             <p class="eyebrow">Reserve Your Spot</p>
-            <h2>Send your booking request.</h2>
+            <h2 id="booking-modal-title">Send your booking request.</h2>
             <p class="section-text">
-              Select a class from the schedule above or choose manually below.
-              We will confirm your booking and send final arrival details by
-              email.
+              Pick a class from the schedule or choose it manually in the popup.
+              We will confirm your booking and final arrival details by email.
             </p>
             <p class="booking-selection-note" id="booking-selection-note">
-              Select a class above to prefill the form, or choose your class
-              manually below.
+              Select a class above to prefill the popup, or choose your class
+              manually here.
             </p>
             <ul class="studio-points">
               <li>First visit? Arrive 10 minutes before class starts.</li>
@@ -150,7 +200,7 @@
             </ul>
           </div>
 
-          <div class="reserve-live-card reveal">
+          <div class="booking-modal-form-card">
             <form class="booking-form live-booking-form" id="booking-form">
               <input
                 id="booking-request-type"
@@ -256,8 +306,8 @@
             <p class="form-note" id="booking-note" aria-live="polite"></p>
           </div>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
 
     <footer class="footer">
       <p>MUSE Pilates</p>

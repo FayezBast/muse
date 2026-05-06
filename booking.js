@@ -8,6 +8,11 @@ const bookingDateField = document.querySelector("#booking-date");
 const bookingTimeField = document.querySelector("#booking-time");
 const bookingNotesField = document.querySelector("#booking-notes");
 const bookingRequestTypeInput = document.querySelector("#booking-request-type");
+const bookingModal = document.querySelector("#booking-modal");
+const bookingModalDialog = document.querySelector(".booking-modal-dialog");
+const bookingOpenTriggers = document.querySelectorAll("[data-open-booking]");
+const bookingCloseTriggers = document.querySelectorAll("[data-close-booking]");
+const bookingNameField = document.querySelector("#booking-name");
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const monthNames = [
@@ -258,6 +263,43 @@ const dates = Array.from({ length: 7 }, (_, index) => {
 });
 
 let selectedDateIndex = 0;
+const defaultBookingSelectionNote = bookingSelectionNote?.textContent.trim() || "";
+let lastBookingTrigger = null;
+
+const openBookingModal = (selectedDate = dates[selectedDateIndex]) => {
+  if (!bookingModal) {
+    return;
+  }
+
+  if (bookingDateField && !bookingDateField.value) {
+    bookingDateField.value = formatIsoDate(selectedDate);
+  }
+
+  if (bookingRequestTypeInput && !bookingSessionInput?.value) {
+    bookingRequestTypeInput.value = "booking";
+  }
+
+  if (bookingSelectionNote && !bookingSessionInput?.value) {
+    bookingSelectionNote.textContent = defaultBookingSelectionNote;
+  }
+
+  bookingModal.hidden = false;
+  document.body.classList.add("modal-open");
+
+  window.requestAnimationFrame(() => {
+    (bookingNameField || bookingSessionInput || bookingModalDialog)?.focus?.();
+  });
+};
+
+const closeBookingModal = () => {
+  if (!bookingModal) {
+    return;
+  }
+
+  bookingModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  lastBookingTrigger?.focus?.();
+};
 
 const buildDateButton = (date, index) => {
   const button = document.createElement("button");
@@ -296,6 +338,10 @@ const renderDateButtons = () => {
 };
 
 const prefillBookingForm = (bookingClass, date) => {
+  if (document.activeElement instanceof HTMLElement) {
+    lastBookingTrigger = document.activeElement;
+  }
+
   if (bookingSessionInput) {
     bookingSessionInput.value = bookingClass.title;
   }
@@ -321,10 +367,7 @@ const prefillBookingForm = (bookingClass, date) => {
     bookingSelectionNote.textContent = `${bookingClass.title} at ${bookingClass.time} has been selected for your ${action}.`;
   }
 
-  document.querySelector("#reserve")?.scrollIntoView({
-    behavior: "smooth",
-    block: "start",
-  });
+  openBookingModal(date);
 };
 
 const buildClassCard = (bookingClass, date) => {
@@ -389,3 +432,21 @@ const renderSchedule = () => {
 
 renderDateButtons();
 renderSchedule();
+
+bookingOpenTriggers.forEach((trigger) => {
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    lastBookingTrigger = trigger;
+    openBookingModal();
+  });
+});
+
+bookingCloseTriggers.forEach((trigger) => {
+  trigger.addEventListener("click", () => closeBookingModal());
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && bookingModal && !bookingModal.hidden) {
+    closeBookingModal();
+  }
+});
