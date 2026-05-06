@@ -967,7 +967,7 @@ export default function BookingPage() {
           <div className="mt-6 grid gap-5 sm:mt-8 sm:gap-6 xl:grid-cols-[0.92fr_1.25fr]">
             <motion.aside
               variants={fadeUp}
-              className={`${cardShellClassName} h-fit p-5 sm:p-8 xl:sticky xl:top-28`}
+              className={`${cardShellClassName} hidden h-fit p-5 sm:p-8 md:block xl:sticky xl:top-28`}
             >
               <p
                 className="text-xs uppercase tracking-[0.3em] text-[#f1c9bf] sm:text-sm sm:tracking-[0.35em]"
