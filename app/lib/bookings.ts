@@ -1,7 +1,13 @@
 import "server-only";
 
 import { Pool, type QueryResultRow } from "pg";
-import { CLASS_TYPES, TIME_SLOTS, getClassType, getTimeSlot } from "./booking-config";
+import {
+  CLASS_TYPES,
+  TIME_SLOTS,
+  getClassType,
+  getTimeSlot,
+  isTimeSlotPast,
+} from "./booking-config";
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<{
@@ -265,6 +271,10 @@ function normalizeBookingInput(input: BookingInput) {
 
   if (!timeSlot) {
     throw new BookingValidationError("Choose a valid class time.");
+  }
+
+  if (isTimeSlotPast(date, timeSlot.time)) {
+    throw new BookingValidationError("This class time is no longer available.");
   }
 
   return {

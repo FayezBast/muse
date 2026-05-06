@@ -15,6 +15,7 @@ import {
   MAX_GUESTS_PER_TIME,
   TIME_SLOTS,
   getClassType,
+  isTimeSlotPast,
   type ClassTypeId,
 } from "../lib/booking-config";
 
@@ -260,6 +261,7 @@ export default function BookingPage() {
   const [availabilityMessage, setAvailabilityMessage] = useState("");
   const [availabilityByKey, setAvailabilityByKey] = useState<Record<string, ClassAvailability>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [clock, setClock] = useState(() => new Date());
   const [form, setForm] = useState<BookingFormState>(() =>
     createEmptyForm(formatIsoDate(new Date())),
   );
@@ -273,13 +275,17 @@ export default function BookingPage() {
       ? availabilityByKey[buildAvailabilityKey(form.date, form.time, form.session)] ??
         createDefaultClassAvailability(form.session)
       : undefined;
+  const selectedTimeUnavailable =
+    form.date && form.time ? isTimeSlotPast(form.date, form.time, clock) : false;
   const selectedDateLabel = activeDate
     ? selectedDateIndex === 0
       ? "Today at MUSE"
       : formatLongDate(activeDate)
     : "Today at MUSE";
   const bookingSelectionNote = form.time
-    ? selectedClassType && selectedAvailability
+    ? selectedTimeUnavailable
+      ? `${form.time} is no longer available because the class time has passed.`
+      : selectedClassType && selectedAvailability
       ? `${form.time} ${selectedClassType.label} is selected at ${selectedClassType.priceLabel}. ${
           selectedAvailability.isFull
             ? "This class is full, so your request will join the waitlist."
@@ -297,6 +303,10 @@ export default function BookingPage() {
 
   function getSlotAvailability(slot: ClassSlot, date = activeDateIso) {
     return CLASS_TYPES.map((classType) => getAvailabilityFor(date, slot.time, classType.id));
+  }
+
+  function isSlotUnavailable(slot: ClassSlot, date = activeDateIso) {
+    return isTimeSlotPast(date, slot.time, clock);
   }
 
   function getRequestType(date: string, time: string, classTypeId: ClassTypeId | "") {
@@ -381,6 +391,16 @@ export default function BookingPage() {
   }, [dates]);
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      setClock(new Date());
+    }, 30_000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isModalOpen) {
       return;
     }
@@ -436,6 +456,11 @@ export default function BookingPage() {
   function prefillBookingFormForClass(slot: ClassSlot, classTypeId?: ClassTypeId) {
     const nextDate = formatIsoDate(activeDate ?? new Date());
 
+    if (isTimeSlotPast(nextDate, slot.time, clock)) {
+      setStatusMessage("This class time is no longer available.");
+      return;
+    }
+
     setStatusMessage("");
     setForm((current) => ({
       ...current,
@@ -460,6 +485,20 @@ export default function BookingPage() {
       } as BookingFormState;
 
       if (name === "session" || name === "date" || name === "time") {
+        if (
+          (name === "date" || name === "time") &&
+          nextForm.time &&
+          isTimeSlotPast(nextForm.date, nextForm.time, clock)
+        ) {
+          nextForm.time = "";
+          nextForm.session = "";
+          nextForm.requestType = "booking";
+          nextForm.notes = AUTO_NOTE_PATTERN.test(nextForm.notes.trim())
+            ? ""
+            : nextForm.notes;
+          return nextForm;
+        }
+
         nextForm.requestType = getRequestType(
           nextForm.date,
           nextForm.time,
@@ -474,8 +513,14 @@ export default function BookingPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    setIsSubmitting(true);
     setStatusMessage("");
+
+    if (isTimeSlotPast(form.date, form.time, new Date())) {
+      setStatusMessage("This class time is no longer available.");
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
       const response = await fetch("/api/bookings", {
@@ -1003,11 +1048,16 @@ export default function BookingPage() {
                 >
                   {activeSchedule.classes.map((slot) => {
                     const slotAvailability = getSlotAvailability(slot);
+                    const slotUnavailable = isSlotUnavailable(slot);
 
                     return (
                       <motion.article
                         key={`${selectedDateIndex}-${slot.time}`}
-                        whileHover={shouldReduceMotion ? undefined : { y: -6, scale: 1.01 }}
+                        whileHover={
+                          shouldReduceMotion || slotUnavailable
+                            ? undefined
+                            : { y: -6, scale: 1.01 }
+                        }
                         className={`${cardShellClassName} p-4 sm:p-6`}
                       >
                         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -1035,11 +1085,16 @@ export default function BookingPage() {
                           <motion.button
                             whileTap={{ scale: 0.98 }}
                             type="button"
+                            disabled={slotUnavailable}
                             onClick={() => prefillBookingForm(slot)}
-                            className="inline-flex min-h-[48px] shrink-0 items-center justify-center rounded-full border border-white/[0.18] bg-transparent px-5 py-3 text-sm font-semibold text-[#f6e8e0] transition hover:border-transparent hover:bg-[linear-gradient(135deg,#f7e8e2,#dcb5aa)] hover:text-[#2a0711] lg:min-w-[130px]"
+                            className={`inline-flex min-h-[48px] shrink-0 items-center justify-center rounded-full border px-5 py-3 text-sm font-semibold transition lg:min-w-[130px] ${
+                              slotUnavailable
+                                ? "cursor-not-allowed border-white/[0.1] bg-white/[0.04] text-[#f6e8e0]/[0.42]"
+                                : "border-white/[0.18] bg-transparent text-[#f6e8e0] hover:border-transparent hover:bg-[linear-gradient(135deg,#f7e8e2,#dcb5aa)] hover:text-[#2a0711]"
+                            }`}
                             style={{ fontFamily: '"Manrope", sans-serif' }}
                           >
-                            Book Time
+                            {slotUnavailable ? "Unavailable" : "Book Time"}
                           </motion.button>
                         </div>
 
@@ -1062,7 +1117,9 @@ export default function BookingPage() {
                                   className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f6e8e0]/[0.62] sm:text-xs sm:tracking-[0.22em]"
                                   style={{ fontFamily: '"Manrope", sans-serif' }}
                                 >
-                                  {classAvailability.isFull
+                                  {slotUnavailable
+                                    ? "Unavailable"
+                                    : classAvailability.isFull
                                     ? `Full · ${classAvailability.waitlistCount} waiting`
                                     : `${classAvailability.spotsLeft} of ${classAvailability.capacity} spots left`}
                                 </p>
@@ -1071,17 +1128,24 @@ export default function BookingPage() {
                               <motion.button
                                 whileTap={{ scale: 0.98 }}
                                 type="button"
+                                disabled={slotUnavailable}
                                 onClick={() =>
                                   prefillBookingFormForClass(slot, classAvailability.id)
                                 }
                                 className={`inline-flex min-h-[44px] items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition sm:min-w-[112px] ${
-                                  classAvailability.isFull
+                                  slotUnavailable
+                                    ? "cursor-not-allowed border border-white/[0.1] bg-white/[0.04] text-[#f6e8e0]/[0.42]"
+                                    : classAvailability.isFull
                                     ? "border border-white/[0.12] bg-transparent text-[#f6e8e0]/[0.74] hover:bg-white/[0.08]"
                                     : "border border-white/[0.18] bg-transparent text-[#f6e8e0] hover:border-transparent hover:bg-[linear-gradient(135deg,#f7e8e2,#dcb5aa)] hover:text-[#2a0711]"
                                 }`}
                                 style={{ fontFamily: '"Manrope", sans-serif' }}
                               >
-                                {classAvailability.isFull ? "Waitlist" : "Book"}
+                                {slotUnavailable
+                                  ? "Unavailable"
+                                  : classAvailability.isFull
+                                    ? "Waitlist"
+                                    : "Book"}
                               </motion.button>
                             </div>
                           ))}
@@ -1261,7 +1325,9 @@ export default function BookingPage() {
                             className="mt-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#f1c9bf]"
                             style={{ fontFamily: '"Manrope", sans-serif' }}
                           >
-                            {selectedAvailability.isFull
+                            {selectedTimeUnavailable
+                              ? "Unavailable"
+                              : selectedAvailability.isFull
                               ? "Full · waitlist available"
                               : `${selectedAvailability.spotsLeft} of ${selectedAvailability.capacity} spots left`}
                           </span>
@@ -1277,6 +1343,7 @@ export default function BookingPage() {
                           required
                           name="date"
                           type="date"
+                          min={formatIsoDate(new Date())}
                           value={form.date}
                           onChange={handleFieldChange}
                           className={fieldClassName}
@@ -1296,11 +1363,22 @@ export default function BookingPage() {
                           className={fieldClassName}
                         >
                           <option value="">Choose a time</option>
-                          {TIME_SLOTS.map((slot) => (
-                            <option key={slot.time} value={slot.time}>
-                              {slot.time}
-                            </option>
-                          ))}
+                          {TIME_SLOTS.map((slot) => {
+                            const optionUnavailable = form.date
+                              ? isTimeSlotPast(form.date, slot.time, clock)
+                              : false;
+
+                            return (
+                              <option
+                                key={slot.time}
+                                value={slot.time}
+                                disabled={optionUnavailable}
+                              >
+                                {slot.time}
+                                {optionUnavailable ? " - unavailable" : ""}
+                              </option>
+                            );
+                          })}
                         </select>
                       </label>
 
@@ -1324,11 +1402,13 @@ export default function BookingPage() {
                       <motion.button
                         whileTap={{ scale: 0.98 }}
                         type="submit"
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || selectedTimeUnavailable}
                         className="inline-flex min-h-[52px] w-full items-center justify-center rounded-full bg-[linear-gradient(135deg,#f7e8e2,#dcb5aa)] px-6 py-3 text-sm font-semibold text-[#2a0711] shadow-[0_18px_36px_rgba(0,0,0,0.28)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                         style={{ fontFamily: '"Manrope", sans-serif' }}
                       >
-                        {isSubmitting
+                        {selectedTimeUnavailable
+                          ? "Unavailable"
+                          : isSubmitting
                           ? "Sending..."
                           : form.requestType === "waitlist"
                             ? "Join Waitlist"
@@ -1343,16 +1423,15 @@ export default function BookingPage() {
                       </p>
                     </div>
 
-                    <p
-                      aria-live="polite"
-                      className={`text-sm leading-7 ${
-                        statusMessage ? "text-[#f1c9bf]" : "text-[#f6e8e0]/[0.72]"
-                      }`}
-                      style={{ fontFamily: '"Manrope", sans-serif' }}
-                    >
-                      {statusMessage ||
-                        "Bookings are saved to the studio database and checked against live spots left."}
-                    </p>
+                    {statusMessage ? (
+                      <p
+                        aria-live="polite"
+                        className="text-sm leading-7 text-[#f1c9bf]"
+                        style={{ fontFamily: '"Manrope", sans-serif' }}
+                      >
+                        {statusMessage}
+                      </p>
+                    ) : null}
                   </form>
                 </div>
               </div>
