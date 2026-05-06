@@ -1,4 +1,24 @@
-export const CLASS_TYPES = [
+export type ClassTypeId = "reformer" | "mat-pilates";
+
+export type StudioClassType = {
+  id: ClassTypeId;
+  label: string;
+  capacity: number;
+  priceCents: number;
+  priceLabel: string;
+};
+
+export type StudioPackage = {
+  id: string;
+  kicker: string;
+  title: string;
+  bonus: string;
+  priceLabel?: string;
+  points: string[];
+  featured?: boolean;
+};
+
+export const DEFAULT_CLASS_TYPES = [
   {
     id: "reformer",
     label: "Reformer",
@@ -13,9 +33,33 @@ export const CLASS_TYPES = [
     priceCents: 2500,
     priceLabel: "$25",
   },
-] as const;
+] as const satisfies readonly StudioClassType[];
 
-export type ClassTypeId = (typeof CLASS_TYPES)[number]["id"];
+export const CLASS_TYPES = DEFAULT_CLASS_TYPES;
+
+export const DEFAULT_PACKAGES: StudioPackage[] = [
+  {
+    id: "four-class-pack",
+    kicker: "Package One",
+    title: "4 Classes",
+    bonus: "5th class free",
+    points: [
+      "Pay for 4 classes and receive 1 extra class free.",
+      "Ideal if you want a shorter commitment to start.",
+    ],
+  },
+  {
+    id: "eight-class-pack",
+    kicker: "Package Two",
+    title: "8 Classes",
+    bonus: "9th class free",
+    points: [
+      "Pay for 8 classes and receive 1 extra class free.",
+      "Best for guests planning a more consistent routine.",
+    ],
+    featured: true,
+  },
+];
 
 export const TIME_SLOTS = [
   {
@@ -34,13 +78,30 @@ export const TIME_SLOTS = [
 
 export const STUDIO_TIME_ZONE = "Asia/Beirut";
 
-export const MAX_GUESTS_PER_TIME = CLASS_TYPES.reduce(
+export const MAX_GUESTS_PER_TIME = DEFAULT_CLASS_TYPES.reduce(
   (total, classType) => total + classType.capacity,
   0,
 );
 
-export function getClassType(id: string) {
-  return CLASS_TYPES.find((classType) => classType.id === id);
+export function getMaxGuestsPerTime(classTypes: readonly StudioClassType[]) {
+  return classTypes.reduce((total, classType) => total + classType.capacity, 0);
+}
+
+export function formatPriceLabel(priceCents: number) {
+  const dollars = priceCents / 100;
+
+  return dollars.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: Number.isInteger(dollars) ? 0 : 2,
+  });
+}
+
+export function getClassType(
+  id: string,
+  classTypes: readonly StudioClassType[] = DEFAULT_CLASS_TYPES,
+) {
+  return classTypes.find((classType) => classType.id === id);
 }
 
 export function getTimeSlot(time: string) {

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
+import StaffAutoRedirect from "./StaffAutoRedirect";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,7 +23,12 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <ClerkProvider>
+          <StaffAutoRedirect />
+          {children}
+        </ClerkProvider>
+      </body>
     </html>
   );
 }

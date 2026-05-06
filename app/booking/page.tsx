@@ -2,22 +2,30 @@
 
 import Image from "next/image";
 import {
+  type ComponentProps,
   type ChangeEvent,
+  type CSSProperties,
   type FormEvent,
+  type ReactNode,
   startTransition,
   useEffect,
   useState,
 } from "react";
+import { Show, SignInButton, useAuth, useUser } from "@clerk/nextjs";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "motion/react";
 import heroImage from "../../assets/hero-pilates.jpg";
 import museWordmark from "../../assets/muse-wordmark.png";
+import AuthCircle from "../AuthCircle";
 import {
   CLASS_TYPES,
-  MAX_GUESTS_PER_TIME,
+  DEFAULT_PACKAGES,
   TIME_SLOTS,
   getClassType,
+  getMaxGuestsPerTime,
   isTimeSlotPast,
   type ClassTypeId,
+  type StudioClassType,
+  type StudioPackage,
 } from "../lib/booking-config";
 
 type ClassSlot = {
@@ -65,29 +73,34 @@ type BookingFormState = {
   notes: string;
 };
 
-const AUTO_NOTE_PATTERN = /^Requested for the .* class slot\.$/;
+type UserBookingSummary = {
+  id: string;
+  createdAt: string;
+  status: "confirmed" | "waitlist";
+  session: string;
+  sessionLabel: string;
+  date: string;
+  time: string;
+  priceCents: number;
+  priceLabel: string;
+};
 
-const packages = [
-  {
-    kicker: "Package One",
-    title: "4 Classes",
-    bonus: "5th class free",
-    points: [
-      "Pay for 4 classes and receive 1 extra class free.",
-      "Ideal if you want a shorter commitment to start.",
-    ],
-  },
-  {
-    kicker: "Package Two",
-    title: "8 Classes",
-    bonus: "9th class free",
-    points: [
-      "Pay for 8 classes and receive 1 extra class free.",
-      "Best for guests planning a more consistent routine.",
-    ],
-    featured: true,
-  },
-];
+type BookingNotificationStatus = {
+  status: "sent" | "skipped" | "failed";
+  reason?: string;
+};
+
+type StudioSettingsResponse = {
+  settings?: {
+    classTypes?: StudioClassType[];
+    packages?: StudioPackage[];
+  };
+  error?: string;
+};
+
+type MotionButtonProps = ComponentProps<typeof motion.button>;
+
+const AUTO_NOTE_PATTERN = /^Requested for the .* class slot\.$/;
 
 const whyMuseHighlights = [
   {
@@ -190,8 +203,11 @@ function buildAvailabilityKey(date: string, time: string, classTypeId: ClassType
   return `${date}|${time}|${classTypeId}`;
 }
 
-function createDefaultClassAvailability(classTypeId: ClassTypeId): ClassAvailability {
-  const classType = getClassType(classTypeId) ?? CLASS_TYPES[0];
+function createDefaultClassAvailability(
+  classTypeId: ClassTypeId,
+  classTypes: readonly StudioClassType[] = CLASS_TYPES,
+): ClassAvailability {
+  const classType = getClassType(classTypeId, classTypes) ?? classTypes[0] ?? CLASS_TYPES[0];
 
   return {
     id: classType.id,
@@ -242,9 +258,129 @@ function formatLongDate(date: Date) {
   }).format(date);
 }
 
-function resolveNextNotes(currentNotes: string, slotTime: string, classTypeId?: ClassTypeId) {
+function formatBookingSummaryDate(dateIso: string) {
+  const [year, month, day] = dateIso.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return dateIso;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
+function parseBookingTime(time: string) {
+  const match = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const [, rawHour, rawMinute, period] = match;
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return undefined;
+  }
+
+  return {
+    hour: period.toUpperCase() === "PM" ? (hour % 12) + 12 : hour % 12,
+    minute,
+  };
+}
+
+function formatCalendarDateTime(dateIso: string, time: string, durationMinutes = 50) {
+  const parsedTime = parseBookingTime(time);
+
+  if (!parsedTime) {
+    return undefined;
+  }
+
+  const [year, month, day] = dateIso.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return undefined;
+  }
+
+  const start = new Date(year, month - 1, day, parsedTime.hour, parsedTime.minute);
+  const end = new Date(start);
+  end.setMinutes(start.getMinutes() + durationMinutes);
+
+  const compact = (date: Date) =>
+    `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(
+      date.getDate(),
+    ).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}${String(
+      date.getMinutes(),
+    ).padStart(2, "0")}00`;
+
+  return {
+    start: compact(start),
+    end: compact(end),
+  };
+}
+
+function buildGoogleCalendarUrl(booking: UserBookingSummary) {
+  const dates = formatCalendarDateTime(booking.date, booking.time);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `MUSE Pilates - ${booking.sessionLabel}`,
+    details: `MUSE ${booking.sessionLabel} booking (${booking.status}).`,
+    location: "MUSE Pilates",
+    ctz: "Asia/Beirut",
+  });
+
+  if (dates) {
+    params.set("dates", `${dates.start}/${dates.end}`);
+  }
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function buildIcsDataUrl(booking: UserBookingSummary) {
+  const dates = formatCalendarDateTime(booking.date, booking.time);
+
+  if (!dates) {
+    return "";
+  }
+
+  const uid = `${booking.id}@muse-pilates`;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//MUSE Pilates//Booking//EN",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${new Date().toISOString().replaceAll(/[-:]/g, "").split(".")[0]}Z`,
+    `DTSTART;TZID=Asia/Beirut:${dates.start}`,
+    `DTEND;TZID=Asia/Beirut:${dates.end}`,
+    `SUMMARY:MUSE Pilates - ${booking.sessionLabel}`,
+    `DESCRIPTION:MUSE ${booking.sessionLabel} booking (${booking.status}).`,
+    "LOCATION:MUSE Pilates",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(lines.join("\r\n"))}`;
+}
+
+function isIsoDateParam(value: string | null): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function resolveNextNotes(
+  currentNotes: string,
+  slotTime: string,
+  classTypeId?: ClassTypeId,
+  classTypes: readonly StudioClassType[] = CLASS_TYPES,
+) {
   const trimmed = currentNotes.trim();
-  const classLabel = classTypeId ? getClassType(classTypeId)?.label : undefined;
+  const classLabel = classTypeId
+    ? getClassType(classTypeId, classTypes)?.label
+    : undefined;
 
   if (!trimmed || AUTO_NOTE_PATTERN.test(trimmed)) {
     return `Requested for the ${slotTime}${classLabel ? ` ${classLabel}` : ""} class slot.`;
@@ -255,13 +391,29 @@ function resolveNextNotes(currentNotes: string, slotTime: string, classTypeId?: 
 
 export default function BookingPage() {
   const shouldReduceMotion = useReducedMotion();
+  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
   const [dates, setDates] = useState<Date[]>(() => buildDates(new Date()));
+  const [classTypes, setClassTypes] = useState<StudioClassType[]>(() =>
+    CLASS_TYPES.map((classType) => ({ ...classType })),
+  );
+  const [studioPackages, setStudioPackages] = useState<StudioPackage[]>(() =>
+    DEFAULT_PACKAGES.map((pkg) => ({
+      ...pkg,
+      points: [...pkg.points],
+    })),
+  );
   const [selectedDateIndex, setSelectedDateIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBookingsModalOpen, setIsBookingsModalOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [availabilityMessage, setAvailabilityMessage] = useState("");
+  const [bookingsMessage, setBookingsMessage] = useState("");
   const [availabilityByKey, setAvailabilityByKey] = useState<Record<string, ClassAvailability>>({});
+  const [myBookings, setMyBookings] = useState<UserBookingSummary[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+  const [cancellingBookingId, setCancellingBookingId] = useState("");
   const [clock, setClock] = useState(() => new Date());
   const [form, setForm] = useState<BookingFormState>(() =>
     createEmptyForm(formatIsoDate(new Date())),
@@ -270,11 +422,14 @@ export default function BookingPage() {
   const activeDate = dates[selectedDateIndex];
   const activeDateIso = activeDate ? formatIsoDate(activeDate) : "";
   const activeSchedule = scheduleMatrix[selectedDateIndex] ?? scheduleMatrix[0];
-  const selectedClassType = form.session ? getClassType(form.session) : undefined;
+  const selectedClassType = form.session
+    ? getClassType(form.session, classTypes)
+    : undefined;
+  const maxGuestsPerTime = getMaxGuestsPerTime(classTypes);
   const selectedAvailability =
     form.date && form.time && form.session
       ? availabilityByKey[buildAvailabilityKey(form.date, form.time, form.session)] ??
-        createDefaultClassAvailability(form.session)
+        createDefaultClassAvailability(form.session, classTypes)
       : undefined;
   const selectedTimeUnavailable =
     form.date && form.time ? isTimeSlotPast(form.date, form.time, clock) : false;
@@ -294,16 +449,20 @@ export default function BookingPage() {
         }`
       : `${form.time} is selected. Choose Reformer or Mat Pilates to see price and spots.`
     : "Select a time slot above to prefill the form, then choose Reformer or Mat Pilates here.";
+  const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
+  const userFullName =
+    user?.fullName ||
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
 
   function getAvailabilityFor(date: string, time: string, classTypeId: ClassTypeId) {
     return (
       availabilityByKey[buildAvailabilityKey(date, time, classTypeId)] ??
-      createDefaultClassAvailability(classTypeId)
+      createDefaultClassAvailability(classTypeId, classTypes)
     );
   }
 
   function getSlotAvailability(slot: ClassSlot, date = activeDateIso) {
-    return CLASS_TYPES.map((classType) => getAvailabilityFor(date, slot.time, classType.id));
+    return classTypes.map((classType) => getAvailabilityFor(date, slot.time, classType.id));
   }
 
   function isSlotUnavailable(slot: ClassSlot, date = activeDateIso) {
@@ -318,6 +477,113 @@ export default function BookingPage() {
     return getAvailabilityFor(date, time, classTypeId).isFull ? "waitlist" : "booking";
   }
 
+  function buildBookingAuthRedirectUrl(slot?: ClassSlot, classTypeId?: ClassTypeId) {
+    const params = new URLSearchParams({ book: "1" });
+    const date = activeDateIso || form.date || formatIsoDate(new Date());
+
+    params.set("date", date);
+
+    if (slot?.time) {
+      params.set("time", slot.time);
+    }
+
+    if (classTypeId) {
+      params.set("session", classTypeId);
+    }
+
+    return `/booking?${params.toString()}#classes`;
+  }
+
+  function AuthBookingButton({
+    authRedirectUrl,
+    children,
+    className,
+    disabled = false,
+    onClick,
+    style,
+    whileHover,
+    whileTap,
+    ariaLabel,
+  }: {
+    authRedirectUrl?: string;
+    children: ReactNode;
+    className: string;
+    disabled?: boolean;
+    onClick: () => void;
+    style?: CSSProperties;
+    whileHover?: MotionButtonProps["whileHover"];
+    whileTap?: MotionButtonProps["whileTap"];
+    ariaLabel?: string;
+  }) {
+    const isDisabled = disabled || !isAuthLoaded;
+    const button = (
+      <motion.button
+        aria-label={ariaLabel}
+        whileHover={whileHover}
+        whileTap={whileTap}
+        type="button"
+        disabled={isDisabled}
+        onClick={isSignedIn ? onClick : undefined}
+        className={className}
+        style={style}
+      >
+        {!isAuthLoaded && !disabled ? "Loading..." : children}
+      </motion.button>
+    );
+
+    if (disabled || !isAuthLoaded || isSignedIn) {
+      return button;
+    }
+
+    return (
+      <SignInButton
+        mode="redirect"
+        forceRedirectUrl={authRedirectUrl ?? buildBookingAuthRedirectUrl()}
+        signUpForceRedirectUrl={authRedirectUrl ?? buildBookingAuthRedirectUrl()}
+      >
+        {button}
+      </SignInButton>
+    );
+  }
+
+  async function refreshMyBookings(signal?: AbortSignal) {
+    if (!isSignedIn) {
+      return;
+    }
+
+    setIsLoadingBookings(true);
+
+    try {
+      const response = await fetch("/api/bookings", {
+        cache: "no-store",
+        signal,
+      });
+      const payload = (await response.json()) as {
+        bookings?: UserBookingSummary[];
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to load your bookings.");
+      }
+
+      setMyBookings(payload.bookings ?? []);
+      setBookingsMessage("");
+    } catch (error) {
+      if (signal?.aborted) {
+        return;
+      }
+
+      setBookingsMessage(
+        error instanceof Error ? error.message : "Unable to load your bookings.",
+      );
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoadingBookings(false);
+      }
+    }
+  }
+
   function mergeAvailability(response: AvailabilityResponse) {
     const nextAvailability = normalizeAvailability(response);
 
@@ -326,6 +592,42 @@ export default function BookingPage() {
       ...nextAvailability,
     }));
   }
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadStudioSettings() {
+      try {
+        const response = await fetch("/api/studio-settings", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = (await response.json()) as StudioSettingsResponse;
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Studio settings unavailable.");
+        }
+
+        if (payload.settings?.classTypes?.length) {
+          setClassTypes(payload.settings.classTypes);
+        }
+
+        if (payload.settings?.packages?.length) {
+          setStudioPackages(payload.settings.packages);
+        }
+      } catch {
+        if (controller.signal.aborted) {
+          return;
+        }
+      }
+    }
+
+    loadStudioSettings();
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   useEffect(() => {
     const nextDates = buildDates(new Date());
@@ -345,6 +647,89 @@ export default function BookingPage() {
           },
     );
   }, []);
+
+  useEffect(() => {
+    if (!isAuthLoaded || !isSignedIn) {
+      setMyBookings([]);
+      setBookingsMessage("");
+      setIsLoadingBookings(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    refreshMyBookings(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [isAuthLoaded, isSignedIn]);
+
+  useEffect(() => {
+    if (!userFullName && !userEmail) {
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      name: current.name || userFullName,
+      email: current.email || userEmail,
+    }));
+  }, [userFullName, userEmail]);
+
+  useEffect(() => {
+    if (!isAuthLoaded || !isSignedIn || typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("book") !== "1") {
+      return;
+    }
+
+    const requestedDate = params.get("date");
+    const nextDate = isIsoDateParam(requestedDate)
+      ? requestedDate
+      : activeDateIso || formatIsoDate(new Date());
+    const requestedTime = params.get("time") ?? "";
+    const nextTime = TIME_SLOTS.some((slot) => slot.time === requestedTime)
+      ? requestedTime
+      : "";
+    const requestedSession = params.get("session") ?? "";
+    const nextSession = getClassType(requestedSession, classTypes)?.id ?? "";
+
+    if (nextTime && isTimeSlotPast(nextDate, nextTime, clock)) {
+      setStatusMessage("This class time is no longer available.");
+    } else {
+      setStatusMessage("");
+      setForm((current) => ({
+        ...current,
+        date: nextDate,
+        time: nextTime,
+        session: nextSession,
+        requestType: nextSession
+          ? getRequestType(nextDate, nextTime, nextSession)
+          : "booking",
+        notes: nextTime
+          ? resolveNextNotes(current.notes, nextTime, nextSession || undefined, classTypes)
+          : current.notes,
+      }));
+      setIsModalOpen(true);
+    }
+
+    params.delete("book");
+    params.delete("date");
+    params.delete("time");
+    params.delete("session");
+
+    const nextSearch = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`,
+    );
+  }, [activeDateIso, clock, isAuthLoaded, isSignedIn]);
 
   useEffect(() => {
     if (dates.length === 0) {
@@ -402,13 +787,14 @@ export default function BookingPage() {
   }, []);
 
   useEffect(() => {
-    if (!isModalOpen) {
+    if (!isModalOpen && !isBookingsModalOpen) {
       return;
     }
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setIsModalOpen(false);
+        setIsBookingsModalOpen(false);
       }
     };
 
@@ -419,7 +805,7 @@ export default function BookingPage() {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [isModalOpen]);
+  }, [isBookingsModalOpen, isModalOpen]);
 
   function handleDateSelect(index: number) {
     startTransition(() => {
@@ -438,6 +824,10 @@ export default function BookingPage() {
   }
 
   function openBookingForm() {
+    if (!isSignedIn) {
+      return;
+    }
+
     setStatusMessage("");
     setForm((current) => ({
       ...current,
@@ -450,11 +840,25 @@ export default function BookingPage() {
     setIsModalOpen(true);
   }
 
+  function openMyBookings() {
+    if (!isSignedIn) {
+      return;
+    }
+
+    setBookingsMessage("");
+    setIsBookingsModalOpen(true);
+    refreshMyBookings();
+  }
+
   function prefillBookingForm(slot: ClassSlot) {
     prefillBookingFormForClass(slot);
   }
 
   function prefillBookingFormForClass(slot: ClassSlot, classTypeId?: ClassTypeId) {
+    if (!isSignedIn) {
+      return;
+    }
+
     const nextDate = formatIsoDate(activeDate ?? new Date());
 
     if (isTimeSlotPast(nextDate, slot.time, clock)) {
@@ -469,7 +873,7 @@ export default function BookingPage() {
       date: nextDate,
       time: slot.time,
       requestType: classTypeId ? getRequestType(nextDate, slot.time, classTypeId) : "booking",
-      notes: resolveNextNotes(current.notes, slot.time, classTypeId),
+      notes: resolveNextNotes(current.notes, slot.time, classTypeId, classTypes),
     }));
     setIsModalOpen(true);
   }
@@ -516,6 +920,11 @@ export default function BookingPage() {
 
     setStatusMessage("");
 
+    if (!isSignedIn) {
+      setStatusMessage("Sign in to book a class.");
+      return;
+    }
+
     if (isTimeSlotPast(form.date, form.time, new Date())) {
       setStatusMessage("This class time is no longer available.");
       return;
@@ -533,13 +942,9 @@ export default function BookingPage() {
       });
       const payload = (await response.json()) as
         | {
-            booking?: {
-              status?: "confirmed" | "waitlist";
-              sessionLabel?: string;
-              time?: string;
-              priceLabel?: string;
-            };
+            booking?: UserBookingSummary;
             availability?: AvailabilityResponse;
+            notification?: BookingNotificationStatus;
             error?: string;
           }
         | undefined;
@@ -552,14 +957,32 @@ export default function BookingPage() {
         mergeAvailability(payload.availability);
       }
 
+      if (payload?.booking) {
+        setMyBookings((current) => [
+          payload.booking as UserBookingSummary,
+          ...current.filter((booking) => booking.id !== payload.booking?.id),
+        ].slice(0, 50));
+      }
+
+      const notificationNote =
+        payload?.notification?.status === "sent"
+          ? " Confirmation emails were sent."
+          : payload?.notification?.status === "skipped"
+            ? " Booking saved; email notifications are not configured yet."
+            : payload?.notification?.status === "failed"
+              ? " Booking saved, but email notifications could not be sent."
+              : "";
+
       setStatusMessage(
-        payload?.booking?.status === "waitlist"
-          ? `The ${payload.booking.sessionLabel ?? "class"} at ${
-              payload.booking.time ?? form.time
-            } is full, so this request was added to the waitlist.`
-          : `Booking saved for ${payload?.booking?.sessionLabel ?? "your class"} at ${
-              payload?.booking?.time ?? form.time
-            } (${payload?.booking?.priceLabel ?? selectedClassType?.priceLabel ?? ""}).`,
+        `${
+          payload?.booking?.status === "waitlist"
+            ? `The ${payload.booking.sessionLabel ?? "class"} at ${
+                payload.booking.time ?? form.time
+              } is full, so this request was added to the waitlist.`
+            : `Booking confirmed for ${payload?.booking?.sessionLabel ?? "your class"} at ${
+                payload?.booking?.time ?? form.time
+              } (${payload?.booking?.priceLabel ?? selectedClassType?.priceLabel ?? ""}).`
+        }${notificationNote}`,
       );
 
       setForm(createEmptyForm(formatIsoDate(activeDate ?? new Date())));
@@ -571,6 +994,65 @@ export default function BookingPage() {
       );
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleCancelBooking(booking: UserBookingSummary) {
+    if (!isSignedIn || cancellingBookingId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Cancel ${booking.sessionLabel} on ${formatBookingSummaryDate(
+        booking.date,
+      )} at ${booking.time}?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCancellingBookingId(booking.id);
+    setBookingsMessage("");
+
+    try {
+      const response = await fetch("/api/bookings", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ bookingId: booking.id }),
+      });
+      const payload = (await response.json()) as
+        | {
+            booking?: UserBookingSummary;
+            bookings?: UserBookingSummary[];
+            availability?: AvailabilityResponse;
+            error?: string;
+          }
+        | undefined;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Unable to cancel booking.");
+      }
+
+      if (payload?.availability) {
+        mergeAvailability(payload.availability);
+      }
+
+      setMyBookings((current) =>
+        payload?.bookings ??
+        current.filter((currentBooking) => currentBooking.id !== booking.id),
+      );
+      setBookingsMessage("Class cancelled.");
+    } catch (error) {
+      setBookingsMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to cancel booking. Please try again.",
+      );
+    } finally {
+      setCancellingBookingId("");
     }
   }
 
@@ -603,18 +1085,32 @@ export default function BookingPage() {
             />
           </a>
 
-          <button
-            type="button"
-            onClick={openBookingForm}
-            className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.06] px-4 text-sm font-semibold text-[#f6e8e0] transition active:scale-[0.98] md:hidden"
+          <div
+            className="flex items-center gap-2 md:hidden"
             style={{ fontFamily: '"Manrope", sans-serif' }}
           >
-            Book
-          </button>
+            <Show when="signed-in">
+              <button
+                type="button"
+                onClick={openMyBookings}
+                className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.06] px-3 text-xs font-semibold text-[#f6e8e0] transition active:scale-[0.98]"
+              >
+                My bookings
+              </button>
+            </Show>
+            <AuthBookingButton
+              onClick={openBookingForm}
+              authRedirectUrl={buildBookingAuthRedirectUrl()}
+              className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.06] px-4 text-sm font-semibold text-[#f6e8e0] transition active:scale-[0.98]"
+            >
+              Book
+            </AuthBookingButton>
+            <AuthCircle />
+          </div>
 
           <nav
             aria-label="Booking navigation"
-            className="hidden items-center gap-6 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-[#f6e8e0]/[0.72] lg:backdrop-blur-[14px] md:flex"
+            className="hidden items-center gap-5 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-[#f6e8e0]/[0.72] lg:backdrop-blur-[14px] md:flex"
             style={{ fontFamily: '"Manrope", sans-serif' }}
           >
             <a className="transition hover:text-[#f6e8e0]" href="#why-muse">
@@ -626,13 +1122,24 @@ export default function BookingPage() {
             <a className="transition hover:text-[#f6e8e0]" href="#classes">
               Schedule
             </a>
-            <button
-              type="button"
+            <AuthBookingButton
               onClick={openBookingForm}
+              authRedirectUrl={buildBookingAuthRedirectUrl()}
               className="rounded-full border border-white/[0.15] px-4 py-2 text-[#f6e8e0] transition hover:border-white/[0.25] hover:bg-white/[0.08]"
             >
               Book
-            </button>
+            </AuthBookingButton>
+            <Show when="signed-in">
+              <button
+                type="button"
+                onClick={openMyBookings}
+                className="rounded-full border border-white/[0.15] px-4 py-2 text-[#f6e8e0] transition hover:border-white/[0.25] hover:bg-white/[0.08]"
+              >
+                My bookings
+              </button>
+            </Show>
+            <span className="h-5 w-px bg-white/[0.12]" />
+            <AuthCircle />
           </nav>
         </div>
       </header>
@@ -704,16 +1211,16 @@ export default function BookingPage() {
                 >
                   View Schedule
                 </motion.a>
-                <motion.button
+                <AuthBookingButton
                   whileHover={shouldReduceMotion ? undefined : { y: -2, scale: 1.01 }}
                   whileTap={{ scale: 0.98 }}
-                  type="button"
                   onClick={openBookingForm}
+                  authRedirectUrl={buildBookingAuthRedirectUrl()}
                   className="inline-flex items-center justify-center rounded-full border border-white/[0.15] bg-white/[0.06] px-6 py-3 text-sm font-semibold text-[#f6e8e0] transition hover:border-white/[0.25] hover:bg-white/10 sm:backdrop-blur"
                   style={{ fontFamily: '"Manrope", sans-serif' }}
                 >
                   Book Now
-                </motion.button>
+                </AuthBookingButton>
               </motion.div>
 
               <motion.div variants={fadeUp} className="mt-8 flex flex-wrap gap-3">
@@ -844,7 +1351,7 @@ export default function BookingPage() {
             variants={stagger}
             className="mt-8 grid gap-5 md:grid-cols-2"
           >
-            {packages.map((pkg) => (
+            {studioPackages.map((pkg) => (
               <motion.article
                 key={pkg.title}
                 variants={fadeUp}
@@ -875,6 +1382,14 @@ export default function BookingPage() {
                 >
                   {pkg.bonus}
                 </p>
+                {pkg.priceLabel ? (
+                  <p
+                    className="mt-4 text-3xl text-[#f4c8be]"
+                    style={{ fontFamily: '"Cormorant Garamond", serif' }}
+                  >
+                    {pkg.priceLabel}
+                  </p>
+                ) : null}
 
                 <ul
                   className="mt-6 space-y-3 text-sm leading-7 text-[#f6e8e0]/[0.72]"
@@ -998,7 +1513,7 @@ export default function BookingPage() {
 
               <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {[
-                  { value: String(MAX_GUESTS_PER_TIME), label: "Per time" },
+                  { value: String(maxGuestsPerTime), label: "Per time" },
                   { value: "4h", label: "Cancel window" },
                   { value: "2x", label: "Daily slots" },
                 ].map((item) => (
@@ -1088,11 +1603,11 @@ export default function BookingPage() {
                             </p>
                           </div>
 
-                          <motion.button
+                          <AuthBookingButton
                             whileTap={{ scale: 0.98 }}
-                            type="button"
                             disabled={slotUnavailable}
                             onClick={() => prefillBookingForm(slot)}
+                            authRedirectUrl={buildBookingAuthRedirectUrl(slot)}
                             className={`inline-flex min-h-[48px] shrink-0 items-center justify-center rounded-full border px-5 py-3 text-sm font-semibold transition lg:min-w-[130px] ${
                               slotUnavailable
                                 ? "cursor-not-allowed border-white/[0.1] bg-white/[0.04] text-[#f6e8e0]/[0.42]"
@@ -1101,7 +1616,7 @@ export default function BookingPage() {
                             style={{ fontFamily: '"Manrope", sans-serif' }}
                           >
                             {slotUnavailable ? "Unavailable" : "Book Time"}
-                          </motion.button>
+                          </AuthBookingButton>
                         </div>
 
                         <div className="mt-5 overflow-hidden rounded-[24px] border border-white/[0.1]">
@@ -1131,13 +1646,16 @@ export default function BookingPage() {
                                 </p>
                               </div>
 
-                              <motion.button
+                              <AuthBookingButton
                                 whileTap={{ scale: 0.98 }}
-                                type="button"
                                 disabled={slotUnavailable}
                                 onClick={() =>
                                   prefillBookingFormForClass(slot, classAvailability.id)
                                 }
+                                authRedirectUrl={buildBookingAuthRedirectUrl(
+                                  slot,
+                                  classAvailability.id,
+                                )}
                                 className={`inline-flex min-h-[44px] items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition sm:min-w-[112px] ${
                                   slotUnavailable
                                     ? "cursor-not-allowed border border-white/[0.1] bg-white/[0.04] text-[#f6e8e0]/[0.42]"
@@ -1152,7 +1670,7 @@ export default function BookingPage() {
                                   : classAvailability.isFull
                                     ? "Waitlist"
                                     : "Book"}
-                              </motion.button>
+                              </AuthBookingButton>
                             </div>
                           ))}
                         </div>
@@ -1283,6 +1801,7 @@ export default function BookingPage() {
                         Email address
                         <input
                           required
+                          readOnly
                           name="email"
                           type="email"
                           value={form.email}
@@ -1320,7 +1839,7 @@ export default function BookingPage() {
                           className={fieldClassName}
                         >
                           <option value="">Choose a class type</option>
-                          {CLASS_TYPES.map((classType) => (
+                          {classTypes.map((classType) => (
                             <option key={classType.id} value={classType.id}>
                               {classType.label} · {classType.priceLabel}
                             </option>
@@ -1441,6 +1960,173 @@ export default function BookingPage() {
                   </form>
                 </div>
               </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isBookingsModalOpen ? (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.button
+              type="button"
+              aria-label="Close my bookings"
+              className="absolute inset-0 bg-[rgba(8,4,8,0.78)] backdrop-blur-sm"
+              onClick={() => setIsBookingsModalOpen(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="my-bookings-modal-title"
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="relative z-10 max-h-[94svh] w-full max-w-4xl overflow-y-auto overscroll-contain rounded-t-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_24%),linear-gradient(145deg,rgba(58,9,25,0.98),rgba(15,4,10,0.99))] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.42)] sm:max-h-[90vh] sm:rounded-[34px] sm:p-8"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p
+                    className="text-xs uppercase tracking-[0.3em] text-[#f1c9bf] sm:text-sm sm:tracking-[0.35em]"
+                    style={{ fontFamily: '"Manrope", sans-serif' }}
+                  >
+                    My Bookings
+                  </p>
+                  <h2
+                    id="my-bookings-modal-title"
+                    className="mt-3 text-[2.1rem] leading-tight text-[#f7e8e2] sm:text-4xl"
+                    style={{ fontFamily: '"Cormorant Garamond", serif' }}
+                  >
+                    Your upcoming reservations.
+                  </h2>
+                  {userEmail ? (
+                    <p
+                      className="mt-2 text-sm text-[#f6e8e0]/[0.62]"
+                      style={{ fontFamily: '"Manrope", sans-serif' }}
+                    >
+                      {userEmail}
+                    </p>
+                  ) : null}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsBookingsModalOpen(false)}
+                  className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] px-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f6e8e0] transition hover:border-white/[0.24] hover:bg-white/[0.08] sm:text-xs"
+                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                >
+                  Close
+                </button>
+              </div>
+
+              {isLoadingBookings ? (
+                <p
+                  className="mt-6 text-sm leading-7 text-[#f6e8e0]/[0.72]"
+                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                >
+                  Loading bookings...
+                </p>
+              ) : myBookings.length > 0 ? (
+                <div className="mt-6 grid gap-3 md:grid-cols-2">
+                  {myBookings.map((booking) => {
+                    const icsUrl = buildIcsDataUrl(booking);
+                    const isCancelling = cancellingBookingId === booking.id;
+
+                    return (
+                      <article
+                        key={booking.id}
+                        className="rounded-[22px] border border-white/10 bg-white/[0.045] p-4 sm:p-5"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p
+                              className="text-sm font-semibold text-[#f7e8e2]"
+                              style={{ fontFamily: '"Manrope", sans-serif' }}
+                            >
+                              {booking.sessionLabel} · {booking.priceLabel}
+                            </p>
+                            <p
+                              className="mt-2 text-2xl leading-tight text-[#f4c8be]"
+                              style={{ fontFamily: '"Cormorant Garamond", serif' }}
+                            >
+                              {formatBookingSummaryDate(booking.date)}
+                            </p>
+                            <p
+                              className="mt-1 text-sm text-[#f6e8e0]/[0.72]"
+                              style={{ fontFamily: '"Manrope", sans-serif' }}
+                            >
+                              {booking.time}
+                            </p>
+                          </div>
+                          <span
+                            className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f1c9bf]"
+                            style={{ fontFamily: '"Manrope", sans-serif' }}
+                          >
+                            {booking.status === "waitlist" ? "Waitlist" : "Confirmed"}
+                          </span>
+                        </div>
+
+                        <div
+                          className="mt-4 flex flex-wrap gap-2"
+                          style={{ fontFamily: '"Manrope", sans-serif' }}
+                        >
+                          <a
+                            href={buildGoogleCalendarUrl(booking)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-white/[0.16] px-3 text-xs font-semibold text-[#f6e8e0] transition hover:border-white/[0.26] hover:bg-white/[0.08]"
+                          >
+                            Google Calendar
+                          </a>
+                          {icsUrl ? (
+                            <a
+                              href={icsUrl}
+                              download={`muse-${booking.date}-${booking.time.replaceAll(" ", "-")}.ics`}
+                              className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-white/[0.16] px-3 text-xs font-semibold text-[#f6e8e0] transition hover:border-white/[0.26] hover:bg-white/[0.08]"
+                            >
+                              Apple/Outlook
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={Boolean(cancellingBookingId)}
+                            onClick={() => handleCancelBooking(booking)}
+                            className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-[#f1c9bf]/[0.35] px-3 text-xs font-semibold text-[#f1c9bf] transition hover:border-[#f1c9bf]/[0.6] hover:bg-[#f1c9bf]/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isCancelling ? "Cancelling..." : "Cancel class"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p
+                  className="mt-6 text-sm leading-7 text-[#f6e8e0]/[0.72]"
+                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                >
+                  No bookings yet.
+                </p>
+              )}
+
+              {bookingsMessage ? (
+                <p
+                  aria-live="polite"
+                  className="mt-5 text-sm leading-7 text-[#f1c9bf]"
+                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                >
+                  {bookingsMessage}
+                </p>
+              ) : null}
             </motion.div>
           </motion.div>
         ) : null}

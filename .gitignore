@@ -20,6 +20,7 @@ booking.js
 .env
 .env.*
 !.env.example
+.env.local
 
 # Logs
 npm-debug.log*
@@ -29,3 +30,6 @@ pnpm-debug.log*
 
 # OS/editor files
 .DS_Store
+
+# clerk configuration (can include secrets)
+/.clerk/
