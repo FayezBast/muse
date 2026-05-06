@@ -10,6 +10,7 @@ import {
 } from "react";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "motion/react";
 import heroImage from "../../assets/hero-pilates.jpg";
+import museWordmark from "../../assets/muse-wordmark.png";
 import {
   CLASS_TYPES,
   MAX_GUESTS_PER_TIME,
@@ -591,10 +592,15 @@ export default function BookingPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
           <a
             href="#schedule"
-            className="text-[1.55rem] font-bold tracking-[0.2em] text-[#f6e8e0] sm:text-[1.8rem]"
-            style={{ fontFamily: '"Cormorant Garamond", serif' }}
+            className="-my-1 inline-flex min-h-[54px] items-center"
+            aria-label="MUSE"
           >
-            MUSE
+            <Image
+              src={museWordmark}
+              alt="MUSE"
+              priority
+              className="h-12 w-auto object-contain sm:h-14"
+            />
           </a>
 
           <button
