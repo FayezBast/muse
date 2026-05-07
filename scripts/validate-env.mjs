@@ -50,6 +50,25 @@ const redisToken =
   process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.RATE_LIMIT_REDIS_REST_TOKEN;
 
 const missing = required.filter((name) => !process.env[name]);
+const invalid = [];
+
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+
+if (clerkPublishableKey && !clerkPublishableKey.startsWith("pk_live_")) {
+  invalid.push("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must start with pk_live_ in production");
+}
+
+if (clerkSecretKey && !clerkSecretKey.startsWith("sk_live_")) {
+  invalid.push("CLERK_SECRET_KEY must start with sk_live_ in production");
+}
+
+if (
+  process.env.E2E_AUTH_MOCK === "true" ||
+  process.env.NEXT_PUBLIC_E2E_AUTH_MOCK === "true"
+) {
+  invalid.push("E2E auth mock must be disabled in production");
+}
 
 if (!redisUrl) {
   missing.push("UPSTASH_REDIS_REST_URL");
@@ -66,8 +85,20 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+if (invalid.length > 0) {
+  console.error(
+    `Production environment validation failed. ${invalid.join("; ")}.`,
+  );
+  process.exit(1);
+}
+
 try {
-  new URL(process.env.APP_URL);
+  const appUrl = new URL(process.env.APP_URL);
+
+  if (appUrl.hostname === "localhost" || appUrl.hostname === "127.0.0.1") {
+    console.error("Production environment validation failed. APP_URL must be your public production URL.");
+    process.exit(1);
+  }
 } catch {
   console.error("Production environment validation failed. APP_URL must be an absolute URL.");
   process.exit(1);
