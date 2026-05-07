@@ -21,6 +21,14 @@ type EmailPayload = {
   replyTo?: string;
 };
 
+type BookingEmailBodyOptions = {
+  title: string;
+  eyebrow: string;
+  intro: string;
+  footer: string;
+  ctaUrl?: string;
+};
+
 export type BookingNotificationResult =
   | { status: "sent" }
   | { status: "skipped"; reason: string }
@@ -51,37 +59,142 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#039;");
 }
 
-function buildBookingLines(details: BookingEmailDetails) {
-  return [
-    `Name: ${details.customerName}`,
-    `Email: ${details.customerEmail}`,
-    details.phone ? `Phone: ${details.phone}` : undefined,
-    `Class: ${details.sessionLabel}`,
-    `Date: ${formatBookingDate(details.date)}`,
-    `Time: ${details.time}`,
-    `Price: ${details.priceLabel}`,
-    `Status: ${details.status === "waitlist" ? "Waitlist" : "Confirmed"}`,
-    details.notes ? `Notes: ${details.notes}` : undefined,
-    `Booking ID: ${details.id}`,
-  ].filter((line): line is string => Boolean(line));
+function formatStatus(details: BookingEmailDetails) {
+  return details.status === "waitlist" ? "Waitlist request" : "Confirmed";
 }
 
-function buildEmailBody(title: string, details: BookingEmailDetails) {
+function buildBookingRows(details: BookingEmailDetails) {
+  return [
+    { label: "Name", value: details.customerName },
+    { label: "Email", value: details.customerEmail },
+    details.phone ? { label: "Phone", value: details.phone } : undefined,
+    { label: "Class", value: details.sessionLabel },
+    { label: "Date", value: formatBookingDate(details.date) },
+    { label: "Time", value: details.time },
+    { label: "Price", value: details.priceLabel },
+    { label: "Status", value: formatStatus(details) },
+    details.notes ? { label: "Notes", value: details.notes } : undefined,
+    { label: "Booking ID", value: details.id },
+  ].filter(
+    (row): row is { label: string; value: string } => Boolean(row),
+  );
+}
+
+function buildBookingLines(details: BookingEmailDetails) {
+  return buildBookingRows(details).map((row) => `${row.label}: ${row.value}`);
+}
+
+function getBookingUrl() {
+  const appUrl = process.env.APP_URL;
+
+  if (!appUrl) {
+    return undefined;
+  }
+
+  try {
+    return new URL("/booking", appUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function buildEmailBody(
+  details: BookingEmailDetails,
+  options: BookingEmailBodyOptions,
+) {
+  const rows = buildBookingRows(details);
   const lines = buildBookingLines(details);
-  const htmlLines = lines
-    .map((line) => {
-      const [label, ...rest] = line.split(": ");
-      return `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(rest.join(": "))}</li>`;
+  const statusColor = details.status === "waitlist" ? "#8a1b3b" : "#426b57";
+  const statusBg = details.status === "waitlist" ? "#f4dce3" : "#dcebe1";
+  const htmlRows = rows
+    .map((row) => {
+      return `
+        <tr>
+          <td style="padding:13px 0;border-bottom:1px solid #ead2ca;color:#7c5963;font-size:13px;line-height:1.4;vertical-align:top;width:34%">${escapeHtml(row.label)}</td>
+          <td style="padding:13px 0;border-bottom:1px solid #ead2ca;color:#241019;font-size:15px;line-height:1.4;font-weight:650;vertical-align:top">${escapeHtml(row.value)}</td>
+        </tr>
+      `;
     })
     .join("");
+  const cta = options.ctaUrl
+    ? `
+      <a href="${escapeHtml(options.ctaUrl)}" style="display:inline-block;margin-top:22px;border-radius:999px;background:#611126;color:#fff7f1;font-size:14px;font-weight:700;line-height:1;text-decoration:none;padding:14px 20px">
+        View booking page
+      </a>
+    `
+    : "";
 
   return {
-    text: `${title}\n\n${lines.join("\n")}`,
+    text: [
+      "MUSE Booking",
+      options.title,
+      "",
+      options.intro,
+      "",
+      ...lines,
+      "",
+      options.footer,
+      options.ctaUrl ? `Booking page: ${options.ctaUrl}` : undefined,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n"),
     html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#241019">
-        <h1 style="font-size:22px;margin:0 0 16px">${escapeHtml(title)}</h1>
-        <ul style="padding-left:18px;margin:0">${htmlLines}</ul>
-      </div>
+      <!doctype html>
+      <html>
+        <body style="margin:0;padding:0;background:#10040b;font-family:Arial,Helvetica,sans-serif;color:#241019">
+          <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+            ${escapeHtml(options.intro)}
+          </div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#10040b;padding:28px 14px">
+            <tr>
+              <td align="center">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border-collapse:collapse">
+                  <tr>
+                    <td style="padding:0 0 18px">
+                      <div style="color:#f7e8e2;font-size:24px;line-height:1;font-weight:800;letter-spacing:3px">MUSE</div>
+                      <div style="margin-top:7px;color:#d8b5ac;font-size:13px;line-height:1.5">Pilates studio booking</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="border-radius:24px;background:#f7e8e2;overflow:hidden">
+                      <div style="padding:32px 28px 24px;background:#611126;color:#fff7f1">
+                        <div style="font-size:12px;line-height:1.3;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:#e8c4ba">${escapeHtml(options.eyebrow)}</div>
+                        <h1 style="margin:12px 0 0;color:#fff7f1;font-size:28px;line-height:1.16;font-weight:800;letter-spacing:0">${escapeHtml(options.title)}</h1>
+                        <p style="margin:14px 0 0;color:#f0d9d1;font-size:15px;line-height:1.65">${escapeHtml(options.intro)}</p>
+                      </div>
+                      <div style="padding:26px 28px 30px;background:#f7e8e2">
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 20px;border-collapse:collapse">
+                          <tr>
+                            <td style="padding:0 0 18px">
+                              <span style="display:inline-block;border-radius:999px;background:${statusBg};color:${statusColor};font-size:13px;line-height:1;font-weight:800;padding:9px 12px">
+                                ${escapeHtml(formatStatus(details))}
+                              </span>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="border-radius:18px;background:#fff7f1;padding:3px 20px">
+                              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
+                                ${htmlRows}
+                              </table>
+                            </td>
+                          </tr>
+                        </table>
+                        <p style="margin:0;color:#5c4149;font-size:14px;line-height:1.65">${escapeHtml(options.footer)}</p>
+                        ${cta}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:18px 4px 0;color:#b99690;font-size:12px;line-height:1.55">
+                      This is a transactional booking email from MUSE. You received it because a booking request was made on muse-booking.com.
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
     `,
   };
 }
@@ -121,6 +234,7 @@ export async function sendBookingNotifications(
 ): Promise<BookingNotificationResult> {
   const instructorEmail = process.env.BOOKING_INSTRUCTOR_EMAIL;
   const ownerEmail = process.env.BOOKING_OWNER_EMAIL;
+  const replyToEmail = process.env.BOOKING_REPLY_TO_EMAIL ?? ownerEmail;
 
   if (
     !process.env.RESEND_API_KEY ||
@@ -135,8 +249,29 @@ export async function sendBookingNotifications(
     };
   }
 
-  const customerBody = buildEmailBody("Your MUSE booking is confirmed", details);
-  const staffBody = buildEmailBody("New MUSE booking", details);
+  const bookingUrl = getBookingUrl();
+  const customerBody = buildEmailBody(details, {
+    title:
+      details.status === "waitlist"
+        ? "Your waitlist request is received"
+        : "Your booking is confirmed",
+    eyebrow: "Booking confirmation",
+    intro:
+      details.status === "waitlist"
+        ? "We received your waitlist request and saved the details below. The studio team will follow up if a spot opens."
+        : "Thank you for booking with MUSE. Your class details are confirmed below.",
+    footer:
+      "Need to change anything? Reply to this email and the studio team will help.",
+    ctaUrl: bookingUrl,
+  });
+  const staffBody = buildEmailBody(details, {
+    title: "New booking received",
+    eyebrow: "Studio notification",
+    intro:
+      "A new booking request was submitted through the MUSE booking site. Customer and class details are below.",
+    footer: "Reply to this email to contact the customer directly.",
+    ctaUrl: bookingUrl,
+  });
   const customerSubject =
     details.status === "waitlist"
       ? `MUSE waitlist request: ${details.sessionLabel} on ${formatBookingDate(details.date)}`
@@ -148,6 +283,7 @@ export async function sendBookingNotifications(
       sendResendEmail({
         to: details.customerEmail,
         subject: customerSubject,
+        replyTo: replyToEmail,
         ...customerBody,
       }),
       sendResendEmail({
