@@ -477,23 +477,23 @@ export default function BookingPage() {
     whileTap?: MotionButtonProps["whileTap"];
     ariaLabel?: string;
   }) {
-    const isDisabled = disabled || !isAuthLoaded;
+    const isSignedInAndReady = isAuthLoaded && isSignedIn;
     const button = (
       <motion.button
         aria-label={ariaLabel}
         whileHover={whileHover}
         whileTap={whileTap}
         type="button"
-        disabled={isDisabled}
-        onClick={isSignedIn ? onClick : undefined}
+        disabled={disabled}
+        onClick={isSignedInAndReady ? onClick : undefined}
         className={className}
         style={style}
       >
-        {!isAuthLoaded && !disabled ? "Loading..." : children}
+        {children}
       </motion.button>
     );
 
-    if (disabled || !isAuthLoaded || isSignedIn) {
+    if (disabled || isSignedInAndReady) {
       return button;
     }
 

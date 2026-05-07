@@ -64,12 +64,19 @@ export default function AuthCircle({ onMyBookingsClick }: AuthCircleProps) {
 
   if (!isLoaded) {
     return (
-      <button
-        type="button"
-        aria-label="Loading account"
-        disabled
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04]"
-      />
+      <SignInButton
+        mode="redirect"
+        forceRedirectUrl="/booking"
+        signUpForceRedirectUrl="/booking"
+      >
+        <button
+          type="button"
+          aria-label="Account"
+          className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.06] transition hover:border-white/[0.26] hover:bg-white/[0.1]"
+        >
+          <GenericAccountIcon />
+        </button>
+      </SignInButton>
     );
   }
 
