@@ -2,12 +2,23 @@ import "server-only";
 
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import { dirname, join } from "path";
-import { DEFAULT_CLASS_TYPES, DEFAULT_PACKAGES, formatPriceLabel } from "./booking-config";
+import {
+  DEFAULT_CLASS_TYPES,
+  DEFAULT_PACKAGES,
+  DEFAULT_TIME_SLOTS,
+  formatPriceLabel,
+  getTimeSlotSortValue,
+} from "./booking-config";
 import { getPool, isProductionRuntime } from "./database";
-import type { StudioClassType, StudioPackage } from "./booking-config";
+import type {
+  StudioClassType,
+  StudioPackage,
+  StudioTimeSlot,
+} from "./booking-config";
 
 export type StudioSettings = {
   classTypes: StudioClassType[];
+  timeSlots: StudioTimeSlot[];
   packages: StudioPackage[];
   updatedAt: string;
 };
@@ -23,6 +34,7 @@ declare global {
 function defaultSettings(): StudioSettings {
   return {
     classTypes: DEFAULT_CLASS_TYPES.map((classType) => ({ ...classType })),
+    timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })),
     packages: DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
       points: [...pkg.points],
@@ -91,6 +103,35 @@ function cleanCapacity(value: unknown, fallback: number) {
   return Math.max(1, Math.min(Math.round(value), 50));
 }
 
+function cleanTime(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  const displayMatch = trimmed.match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
+
+  if (displayMatch) {
+    const hour = Number(displayMatch[1]);
+
+    if (hour >= 1 && hour <= 12) {
+      return `${hour}:${displayMatch[2]} ${displayMatch[3].toUpperCase()}`;
+    }
+  }
+
+  const inputMatch = trimmed.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+
+  if (!inputMatch) {
+    return fallback;
+  }
+
+  const hour24 = Number(inputMatch[1]);
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+
+  return `${hour12}:${inputMatch[2]} ${period}`;
+}
+
 function getRecord(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -115,6 +156,40 @@ function normalizeClassTypes(value: unknown): StudioClassType[] {
       priceLabel: formatPriceLabel(priceCents),
     };
   });
+}
+
+function normalizeTimeSlots(value: unknown): StudioTimeSlot[] {
+  const rawTimeSlots = getArray(value).map(getRecord);
+  const source =
+    rawTimeSlots.length > 0
+      ? rawTimeSlots
+      : DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot }));
+  const seenTimes = new Set<string>();
+  const slots: StudioTimeSlot[] = [];
+
+  for (const [index, rawSlot] of source.entries()) {
+    const fallbackSlot = DEFAULT_TIME_SLOTS[index] ?? DEFAULT_TIME_SLOTS[0];
+    const time = cleanTime(rawSlot.time, fallbackSlot.time);
+
+    if (seenTimes.has(time)) {
+      continue;
+    }
+
+    seenTimes.add(time);
+    slots.push({
+      time,
+      title: cleanText(rawSlot.title, fallbackSlot.title, 100),
+      subtitle: cleanText(rawSlot.subtitle, fallbackSlot.subtitle, 180),
+      duration: cleanText(rawSlot.duration, fallbackSlot.duration, 40),
+    });
+  }
+
+  return (slots.length > 0 ? slots : DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })))
+    .toSorted(
+      (first, second) =>
+        getTimeSlotSortValue(first.time) - getTimeSlotSortValue(second.time),
+    )
+    .slice(0, 8);
 }
 
 function normalizePackages(value: unknown): StudioPackage[] {
@@ -150,6 +225,7 @@ function normalizeSettings(value: unknown): StudioSettings {
 
   return {
     classTypes: normalizeClassTypes(rawSettings.classTypes),
+    timeSlots: normalizeTimeSlots(rawSettings.timeSlots),
     packages: normalizePackages(rawSettings.packages),
     updatedAt: cleanText(rawSettings.updatedAt, new Date().toISOString(), 80),
   };

@@ -35,6 +35,44 @@ describe("API validation schemas", () => {
     expect(() => cancelBookingSchema.parse({ bookingId: "" })).toThrow();
   });
 
+  it("accepts owner-editable class time slots", () => {
+    const parsed = studioSettingsSchema.parse({
+      classTypes: [
+        {
+          id: "reformer",
+          label: "Reformer",
+          capacity: 4,
+          priceCents: 3500,
+        },
+        {
+          id: "mat-pilates",
+          label: "Mat Pilates",
+          capacity: 6,
+          priceCents: 2500,
+        },
+      ],
+      timeSlots: [
+        {
+          time: "8:15 PM",
+          title: "Evening Class Slot",
+          subtitle: "Choose Reformer or Mat Pilates when booking.",
+          duration: "50 min",
+        },
+      ],
+      packages: [
+        {
+          id: "four-class-pack",
+          kicker: "Package One",
+          title: "4 Classes",
+          bonus: "5th class free",
+          points: ["Pay for 4 classes and receive 1 extra class free."],
+        },
+      ],
+    });
+
+    expect(parsed.timeSlots[0]?.time).toBe("8:15 PM");
+  });
+
   it("bounds owner-editable studio settings", () => {
     expect(() =>
       studioSettingsSchema.parse({

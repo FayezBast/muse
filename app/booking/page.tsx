@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
   startTransition,
+  useMemo,
   useEffect,
   useState,
 } from "react";
@@ -19,7 +20,7 @@ import { SignInButton, useAuth, useUser } from "../lib/auth-client";
 import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,
-  TIME_SLOTS,
+  DEFAULT_TIME_SLOTS,
   addDaysToIsoDate,
   formatStudioCalendarDateTime,
   getClassType,
@@ -29,6 +30,7 @@ import {
   type ClassTypeId,
   type StudioClassType,
   type StudioPackage,
+  type StudioTimeSlot,
 } from "../lib/booking-config";
 
 type ClassSlot = {
@@ -96,6 +98,7 @@ type BookingNotificationStatus = {
 type StudioSettingsResponse = {
   settings?: {
     classTypes?: StudioClassType[];
+    timeSlots?: StudioTimeSlot[];
     packages?: StudioPackage[];
   };
   error?: string;
@@ -121,16 +124,6 @@ const whyMuseHighlights = [
     title: "Community.",
     copy: "A warm MUSE rhythm where Pilates feels elevated, social, and personal instead of rushed or anonymous.",
   },
-];
-
-const scheduleMatrix: DaySchedule[] = [
-  createDailySchedule(),
-  createDailySchedule(),
-  createDailySchedule(),
-  createDailySchedule(),
-  createDailySchedule(),
-  createDailySchedule(),
-  createDailySchedule(),
 ];
 
 const easeOutQuart = [0.22, 1, 0.36, 1] as const;
@@ -159,11 +152,31 @@ const fieldClassName =
 const cardShellClassName =
   "rounded-[24px] border border-white/10 bg-[#1a0710]/75 shadow-[0_22px_54px_rgba(0,0,0,0.32)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.05),transparent_100%)] sm:rounded-[28px] lg:bg-white/[0.035] lg:shadow-[0_30px_80px_rgba(0,0,0,0.4)] lg:backdrop-blur-[14px]";
 
-function createDailySchedule(): DaySchedule {
+function formatInlineList(values: string[]) {
+  if (values.length <= 1) {
+    return values[0] ?? "";
+  }
+
+  return `${values.slice(0, -1).join(", ")} and ${values.at(-1)}`;
+}
+
+function createDailySchedule(
+  timeSlots: readonly StudioTimeSlot[] = DEFAULT_TIME_SLOTS,
+  classTypes: readonly StudioClassType[] = CLASS_TYPES,
+): DaySchedule {
+  const timeSummary = formatInlineList(timeSlots.map((slot) => slot.time));
+  const capacitySummary = formatInlineList(
+    classTypes.map(
+      (classType) =>
+        `${classType.label} has ${classType.capacity} spot${
+          classType.capacity === 1 ? "" : "s"
+        }`,
+    ),
+  );
+
   return {
-    summary:
-      "Two daily class slots are available at 10:30 AM and 6:00 PM. Reformer has 4 spots and Mat Pilates has 6 spots.",
-    classes: TIME_SLOTS.map((slot) => ({
+    summary: `Class slots are available at ${timeSummary}. ${capacitySummary}.`,
+    classes: timeSlots.map((slot) => ({
       time: slot.time,
       title: slot.title,
       subtitle: slot.subtitle,
@@ -359,12 +372,16 @@ export default function BookingPage() {
   const [classTypes, setClassTypes] = useState<StudioClassType[]>(() =>
     CLASS_TYPES.map((classType) => ({ ...classType })),
   );
+  const [timeSlots, setTimeSlots] = useState<StudioTimeSlot[]>(() =>
+    DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })),
+  );
   const [studioPackages, setStudioPackages] = useState<StudioPackage[]>(() =>
     DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
       points: [...pkg.points],
     })),
   );
+  const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
   const [selectedDateIndex, setSelectedDateIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBookingsModalOpen, setIsBookingsModalOpen] = useState(false);
@@ -383,7 +400,10 @@ export default function BookingPage() {
 
   const activeDate = dates[selectedDateIndex];
   const activeDateIso = activeDate ? formatIsoDate(activeDate) : "";
-  const activeSchedule = scheduleMatrix[selectedDateIndex] ?? scheduleMatrix[0];
+  const activeSchedule = useMemo(
+    () => createDailySchedule(timeSlots, classTypes),
+    [classTypes, timeSlots],
+  );
   const selectedClassType = form.session
     ? getClassType(form.session, classTypes)
     : undefined;
@@ -400,6 +420,15 @@ export default function BookingPage() {
       ? "Today at MUSE"
       : formatLongDate(activeDate)
     : "Today at MUSE";
+  const classTimeSummary = formatInlineList(timeSlots.map((slot) => slot.time));
+  const classCapacitySummary = formatInlineList(
+    classTypes.map(
+      (classType) =>
+        `${classType.label} has ${classType.capacity} spot${
+          classType.capacity === 1 ? "" : "s"
+        }`,
+    ),
+  );
   const bookingSelectionNote = form.time
     ? selectedTimeUnavailable
       ? `${form.time} is no longer available because the class time has passed.`
@@ -574,12 +603,20 @@ export default function BookingPage() {
           setClassTypes(payload.settings.classTypes);
         }
 
+        if (payload.settings?.timeSlots?.length) {
+          setTimeSlots(payload.settings.timeSlots);
+        }
+
         if (payload.settings?.packages?.length) {
           setStudioPackages(payload.settings.packages);
         }
       } catch {
         if (controller.signal.aborted) {
           return;
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSettingsLoaded(true);
         }
       }
     }
@@ -640,7 +677,12 @@ export default function BookingPage() {
   }, [userFullName, userEmail]);
 
   useEffect(() => {
-    if (!isAuthLoaded || !isSignedIn || typeof window === "undefined") {
+    if (
+      !isSettingsLoaded ||
+      !isAuthLoaded ||
+      !isSignedIn ||
+      typeof window === "undefined"
+    ) {
       return;
     }
 
@@ -655,7 +697,7 @@ export default function BookingPage() {
       ? requestedDate
       : activeDateIso || getStudioTodayIso(clock);
     const requestedTime = params.get("time") ?? "";
-    const nextTime = TIME_SLOTS.some((slot) => slot.time === requestedTime)
+    const nextTime = timeSlots.some((slot) => slot.time === requestedTime)
       ? requestedTime
       : "";
     const requestedSession = params.get("session") ?? "";
@@ -691,7 +733,15 @@ export default function BookingPage() {
       "",
       `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`,
     );
-  }, [activeDateIso, clock, isAuthLoaded, isSignedIn]);
+  }, [
+    activeDateIso,
+    classTypes,
+    clock,
+    isAuthLoaded,
+    isSettingsLoaded,
+    isSignedIn,
+    timeSlots,
+  ]);
 
   useEffect(() => {
     if (dates.length === 0) {
@@ -736,7 +786,7 @@ export default function BookingPage() {
     return () => {
       controller.abort();
     };
-  }, [dates]);
+  }, [dates, timeSlots]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -1487,7 +1537,7 @@ export default function BookingPage() {
                 </li>
                 <li className="flex gap-3">
                   <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#f1c9bf]" />
-                  <span>Reformer has 4 spots; Mat Pilates has 6 spots.</span>
+                  <span>{classCapacitySummary}.</span>
                 </li>
               </ul>
             </motion.aside>
@@ -1708,7 +1758,7 @@ export default function BookingPage() {
                       </li>
                       <li className="flex gap-3">
                         <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#d4b493]" />
-                        <span>Current class times are 10:30 AM and 6:00 PM.</span>
+                        <span>Current class times are {classTimeSummary}.</span>
                       </li>
                     </ul>
                   </div>
@@ -1829,7 +1879,7 @@ export default function BookingPage() {
                           className={fieldClassName}
                         >
                           <option value="">Choose a time</option>
-                          {TIME_SLOTS.map((slot) => {
+                          {timeSlots.map((slot) => {
                             const optionUnavailable = form.date
                               ? isTimeSlotPast(form.date, slot.time, clock)
                               : false;

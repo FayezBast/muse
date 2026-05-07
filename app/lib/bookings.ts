@@ -5,14 +5,15 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { type QueryResultRow } from "pg";
 import {
-  TIME_SLOTS,
   STUDIO_TIME_ZONE,
   formatPriceLabel,
   getClassType,
   getTimeSlot,
+  getTimeSlotSortValue,
   isWithinCancellationCutoff,
   isTimeSlotPast,
   type StudioClassType,
+  type StudioTimeSlot,
 } from "./booking-config";
 import {
   DatabaseNotConfiguredError,
@@ -239,11 +240,12 @@ function normalizeDates(dates: string[]) {
 function buildDefaultAvailability(
   dates: string[],
   classTypes: readonly StudioClassType[],
+  timeSlots: readonly StudioTimeSlot[],
 ): AvailabilityResponse {
   return {
     dates: dates.map((date) => ({
       date,
-      slots: TIME_SLOTS.map((slot) => ({
+      slots: timeSlots.map((slot) => ({
         time: slot.time,
         classes: classTypes.map((classType) => ({
           id: classType.id,
@@ -428,9 +430,10 @@ function buildAvailabilityFromStoredBookings(
   bookings: StoredBooking[],
   dates: string[],
   classTypes: readonly StudioClassType[],
+  timeSlots: readonly StudioTimeSlot[],
 ) {
   return applyAvailabilityCounts(
-    buildDefaultAvailability(dates, classTypes),
+    buildDefaultAvailability(dates, classTypes, timeSlots),
     getCountsFromStoredBookings(bookings, dates),
   );
 }
@@ -445,6 +448,7 @@ export async function getAvailability(dates: string[]): Promise<AvailabilityResp
       await readLocalBookings(),
       normalizedDates,
       settings.classTypes,
+      settings.timeSlots,
     );
   }
 
@@ -473,7 +477,7 @@ export async function getAvailability(dates: string[]): Promise<AvailabilityResp
   );
 
   return applyAvailabilityCounts(
-    buildDefaultAvailability(normalizedDates, settings.classTypes),
+    buildDefaultAvailability(normalizedDates, settings.classTypes, settings.timeSlots),
     result.rows.map((row) => ({
       date: row.class_date,
       time: row.class_time,
@@ -498,7 +502,7 @@ function normalizeBookingInput(
   const notes = cleanText(input.notes);
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   const classType = getClassType(session, settings.classTypes);
-  const timeSlot = getTimeSlot(time);
+  const timeSlot = getTimeSlot(time, settings.timeSlots);
 
   if (!name) {
     throw new BookingValidationError("Full name is required.");
@@ -681,7 +685,7 @@ async function createLocalBooking(
         booking: buildBookingResponse(idempotentBooking, booking),
         availability: buildAvailabilityFromStoredBookings(bookings, [
           booking.date,
-        ], settings.classTypes),
+        ], settings.classTypes, settings.timeSlots),
       };
     }
 
@@ -740,7 +744,7 @@ async function createLocalBooking(
       ),
       availability: buildAvailabilityFromStoredBookings(nextBookings, [
         booking.date,
-      ], settings.classTypes),
+      ], settings.classTypes, settings.timeSlots),
     };
   });
 }
@@ -1049,7 +1053,7 @@ export async function cancelUserBooking(
         ).slice(0, 50),
         availability: buildAvailabilityFromStoredBookings(nextBookings, [
           booking.classDate,
-        ], settings.classTypes),
+        ], settings.classTypes, settings.timeSlots),
       };
     });
   }
@@ -1299,10 +1303,32 @@ function isActiveStaffBooking(
   return booking.status === "confirmed" || booking.status === "waitlist";
 }
 
-function getTimeSortIndex(time: string) {
-  const index = TIME_SLOTS.findIndex((slot) => slot.time === time);
+function getScheduleTimeSlots(
+  activeBookings: readonly StoredBooking[],
+  timeSlots: readonly StudioTimeSlot[],
+) {
+  const configuredTimes = new Set(timeSlots.map((slot) => slot.time));
+  const extraTimes = Array.from(
+    new Set(
+      activeBookings
+        .map((booking) => booking.classTime)
+        .filter((time) => !configuredTimes.has(time)),
+    ),
+  ).toSorted((first, second) => {
+    const minuteDiff = getTimeSlotSortValue(first) - getTimeSlotSortValue(second);
 
-  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+    return minuteDiff || first.localeCompare(second);
+  });
+
+  return [
+    ...timeSlots,
+    ...extraTimes.map((time) => ({
+      time,
+      title: "Previously Scheduled Class Slot",
+      subtitle: "This time has existing bookings but is no longer listed for new bookings.",
+      duration: "50 min",
+    })),
+  ];
 }
 
 function buildStaffBookingDetail(
@@ -1336,7 +1362,8 @@ function buildScheduleForDate(
   const activeBookings = bookings
     .filter(isActiveStaffBooking)
     .filter((booking) => booking.classDate === date);
-  const slots: StaffScheduleSlot[] = TIME_SLOTS.map((slot) => {
+  const scheduleTimeSlots = getScheduleTimeSlots(activeBookings, settings.timeSlots);
+  const slots: StaffScheduleSlot[] = scheduleTimeSlots.map((slot) => {
     const classes = settings.classTypes.map((classType) => {
       const classBookings = activeBookings
         .filter(
@@ -1384,7 +1411,7 @@ function buildScheduleForDate(
       classes,
     };
   });
-  const totalCapacity = TIME_SLOTS.length * settings.classTypes.reduce(
+  const totalCapacity = slots.length * settings.classTypes.reduce(
     (total, classType) => total + classType.capacity,
     0,
   );
@@ -1606,7 +1633,7 @@ async function getOwnerDashboardFromDatabase(
   const classStatsBySession = new Map(
     classStatsResult.rows.map((row) => [row.session, row]),
   );
-  const todayCapacity = TIME_SLOTS.length * settings.classTypes.reduce(
+  const todayCapacity = settings.timeSlots.length * settings.classTypes.reduce(
     (total, classType) => total + classType.capacity,
     0,
   );
@@ -1709,7 +1736,7 @@ export async function getOwnerDashboard(
       revenueLabel: formatPriceLabel(revenueCents),
     };
   });
-  const todayCapacity = TIME_SLOTS.length * settings.classTypes.reduce(
+  const todayCapacity = settings.timeSlots.length * settings.classTypes.reduce(
     (total, classType) => total + classType.capacity,
     0,
   );

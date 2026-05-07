@@ -1,7 +1,11 @@
 import { z } from "zod";
-import { TIME_SLOTS } from "./booking-config";
 
-const timeSlotValues = TIME_SLOTS.map((slot) => slot.time) as [string, ...string[]];
+const timeSlotSchema = z
+  .string()
+  .trim()
+  .min(1, "Choose a valid class time.")
+  .max(20, "Choose a valid class time.")
+  .regex(/^(0?[1-9]|1[0-2]):[0-5]\d\s*(AM|PM)$/i, "Choose a valid class time.");
 
 export const idempotencyKeySchema = z
   .string()
@@ -19,7 +23,7 @@ export const bookingInputSchema = z.object({
     message: "Choose Reformer or Mat Pilates.",
   }),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a valid date."),
-  time: z.enum(timeSlotValues, { message: "Choose a valid class time." }),
+  time: timeSlotSchema,
   notes: z.string().trim().max(2000).optional().default(""),
   requestType: z.enum(["booking", "waitlist"]).optional(),
   idempotencyKey: idempotencyKeySchema,
@@ -37,6 +41,13 @@ const settingsClassTypeSchema = z.object({
   priceLabel: z.string().trim().max(40).optional(),
 });
 
+const settingsTimeSlotSchema = z.object({
+  time: timeSlotSchema,
+  title: z.string().trim().min(1).max(100),
+  subtitle: z.string().trim().min(1).max(180),
+  duration: z.string().trim().min(1).max(40),
+});
+
 const settingsPackageSchema = z.object({
   id: z.string().trim().min(1).max(80),
   kicker: z.string().trim().min(1).max(80),
@@ -49,6 +60,7 @@ const settingsPackageSchema = z.object({
 
 export const studioSettingsSchema = z.object({
   classTypes: z.array(settingsClassTypeSchema).min(1).max(2),
+  timeSlots: z.array(settingsTimeSlotSchema).min(1).max(8),
   packages: z.array(settingsPackageSchema).min(1).max(4),
   updatedAt: z.string().optional(),
 });

@@ -18,6 +18,13 @@ export type StudioPackage = {
   featured?: boolean;
 };
 
+export type StudioTimeSlot = {
+  time: string;
+  title: string;
+  subtitle: string;
+  duration: string;
+};
+
 export const DEFAULT_CLASS_TYPES = [
   {
     id: "reformer",
@@ -61,7 +68,7 @@ export const DEFAULT_PACKAGES: StudioPackage[] = [
   },
 ];
 
-export const TIME_SLOTS = [
+export const DEFAULT_TIME_SLOTS = [
   {
     time: "10:30 AM",
     title: "Morning Class Slot",
@@ -74,7 +81,9 @@ export const TIME_SLOTS = [
     subtitle: "Choose Reformer or Mat Pilates when booking.",
     duration: "50 min",
   },
-] as const;
+] as const satisfies readonly StudioTimeSlot[];
+
+export const TIME_SLOTS = DEFAULT_TIME_SLOTS;
 
 export const STUDIO_TIME_ZONE = "Asia/Beirut";
 
@@ -104,8 +113,11 @@ export function getClassType(
   return classTypes.find((classType) => classType.id === id);
 }
 
-export function getTimeSlot(time: string) {
-  return TIME_SLOTS.find((slot) => slot.time === time);
+export function getTimeSlot(
+  time: string,
+  timeSlots: readonly StudioTimeSlot[] = DEFAULT_TIME_SLOTS,
+) {
+  return timeSlots.find((slot) => slot.time === time);
 }
 
 export function getTimeSlotMinutes(time: string) {
@@ -127,6 +139,10 @@ export function getTimeSlotMinutes(time: string) {
     period.toUpperCase() === "PM" ? (hour % 12) + 12 : hour % 12;
 
   return normalizedHour * 60 + minute;
+}
+
+export function getTimeSlotSortValue(time: string) {
+  return getTimeSlotMinutes(time) ?? Number.MAX_SAFE_INTEGER;
 }
 
 export function getStudioNowParts(now = new Date()) {

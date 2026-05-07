@@ -8,7 +8,8 @@ test("public booking page renders the schedule and account entry point", async (
   await expect(page.getByRole("button", { name: /Account/i })).toBeVisible();
   await page.getByRole("link", { name: /View Schedule/i }).click();
   await expect(page.getByRole("heading", { name: /Morning Class Slot/i })).toBeVisible();
-  await expect(page.getByText(/4 of 4 spots left/i).first()).toBeVisible();
+  await expect(page.getByText(/Reformer ·/i).first()).toBeVisible();
+  await expect(page.getByText(/Mat Pilates ·/i).first()).toBeVisible();
 });
 
 test("admin route requires authentication", async ({ page }) => {

@@ -6,9 +6,11 @@ import { useAuth } from "../lib/auth-client";
 import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,
+  DEFAULT_TIME_SLOTS,
   getStudioTodayIso,
   type StudioClassType,
   type StudioPackage,
+  type StudioTimeSlot,
 } from "../lib/booking-config";
 
 type StaffBookingDetail = {
@@ -51,6 +53,7 @@ type StaffScheduleSlot = {
 
 type StudioSettings = {
   classTypes: StudioClassType[];
+  timeSlots: StudioTimeSlot[];
   packages: StudioPackage[];
   updatedAt: string;
 };
@@ -104,6 +107,7 @@ const panelClassName =
 function createDefaultSettings(): StudioSettings {
   return {
     classTypes: CLASS_TYPES.map((classType) => ({ ...classType })),
+    timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })),
     packages: DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
       points: [...pkg.points],
@@ -126,6 +130,58 @@ function parsePriceCents(value: string) {
   }
 
   return Math.max(0, Math.round(parsed * 100));
+}
+
+function timeInputValue(time: string) {
+  const match = time.match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
+
+  if (!match) {
+    return "";
+  }
+
+  const hour = Number(match[1]);
+  const minute = match[2];
+  const period = match[3].toUpperCase();
+  const hour24 = period === "PM" ? (hour % 12) + 12 : hour % 12;
+
+  return `${String(hour24).padStart(2, "0")}:${minute}`;
+}
+
+function displayTimeFromInput(value: string, fallback: string) {
+  const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+
+  if (!match) {
+    return fallback;
+  }
+
+  const hour24 = Number(match[1]);
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+
+  return `${hour12}:${match[2]} ${period}`;
+}
+
+function createNewTimeSlot(existingSlots: readonly StudioTimeSlot[]): StudioTimeSlot {
+  const existingTimes = new Set(existingSlots.map((slot) => slot.time));
+  const candidateTimes = [
+    "7:00 AM",
+    "8:00 AM",
+    "9:00 AM",
+    "12:00 PM",
+    "4:00 PM",
+    "5:00 PM",
+    "7:00 PM",
+    "8:00 PM",
+  ];
+  const time =
+    candidateTimes.find((candidate) => !existingTimes.has(candidate)) ?? "12:00 PM";
+
+  return {
+    time,
+    title: "Class Slot",
+    subtitle: "Choose Reformer or Mat Pilates when booking.",
+    duration: "50 min",
+  };
 }
 
 function formatDateTime(value: string) {
@@ -256,6 +312,53 @@ export default function AdminPage() {
         };
       }),
     }));
+  }
+
+  function updateTimeSlot(
+    index: number,
+    key: "time" | "title" | "subtitle" | "duration",
+    value: string,
+  ) {
+    setDraftSettings((current) => ({
+      ...current,
+      timeSlots: current.timeSlots.map((slot, itemIndex) => {
+        if (itemIndex !== index) {
+          return slot;
+        }
+
+        return {
+          ...slot,
+          [key]:
+            key === "time" ? displayTimeFromInput(value, slot.time) : value,
+        };
+      }),
+    }));
+  }
+
+  function addTimeSlot() {
+    setDraftSettings((current) => {
+      if (current.timeSlots.length >= 8) {
+        return current;
+      }
+
+      return {
+        ...current,
+        timeSlots: [...current.timeSlots, createNewTimeSlot(current.timeSlots)],
+      };
+    });
+  }
+
+  function removeTimeSlot(index: number) {
+    setDraftSettings((current) => {
+      if (current.timeSlots.length <= 1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        timeSlots: current.timeSlots.filter((_, itemIndex) => itemIndex !== index),
+      };
+    });
   }
 
   function updatePackage(
@@ -604,7 +707,7 @@ export default function AdminPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#f1c9bf]">
-                Pricing And Packages
+                Pricing, Times, And Packages
               </p>
               <h2 className="mt-2 text-3xl text-[#f7e8e2]">
                 Edit what clients see
@@ -619,7 +722,7 @@ export default function AdminPage() {
             </button>
           </div>
 
-          <div className="mt-7 grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="mt-7 grid gap-5 xl:grid-cols-[0.75fr_1.25fr]">
             <section className="rounded-[22px] border border-white/10 bg-black/18 p-4 sm:p-5">
               <h3 className="text-lg font-semibold text-[#f7e8e2]">Class prices</h3>
               <div className="mt-4 space-y-4">
@@ -672,6 +775,81 @@ export default function AdminPage() {
             </section>
 
             <section className="rounded-[22px] border border-white/10 bg-black/18 p-4 sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="text-lg font-semibold text-[#f7e8e2]">Class times</h3>
+                <button
+                  type="button"
+                  onClick={addTimeSlot}
+                  disabled={draftSettings.timeSlots.length >= 8}
+                  className="inline-flex min-h-[40px] w-fit items-center justify-center rounded-full border border-white/10 bg-white/[0.055] px-4 text-sm font-semibold text-[#f6e8e0] transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Add time
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                {draftSettings.timeSlots.map((slot, index) => (
+                  <article
+                    key={`${slot.time}-${index}`}
+                    className="rounded-[18px] border border-white/10 bg-white/[0.035] p-4"
+                  >
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="block text-sm text-[#f6e8e0]/65">
+                        Time
+                        <input
+                          type="time"
+                          value={timeInputValue(slot.time)}
+                          onChange={(event) =>
+                            updateTimeSlot(index, "time", event.target.value)
+                          }
+                          className={inputClassName}
+                        />
+                      </label>
+                      <label className="block text-sm text-[#f6e8e0]/65">
+                        Duration
+                        <input
+                          value={slot.duration}
+                          onChange={(event) =>
+                            updateTimeSlot(index, "duration", event.target.value)
+                          }
+                          className={inputClassName}
+                        />
+                      </label>
+                    </div>
+                    <label className="mt-4 block text-sm text-[#f6e8e0]/65">
+                      Slot title
+                      <input
+                        value={slot.title}
+                        onChange={(event) =>
+                          updateTimeSlot(index, "title", event.target.value)
+                        }
+                        className={inputClassName}
+                      />
+                    </label>
+                    <label className="mt-4 block text-sm text-[#f6e8e0]/65">
+                      Description
+                      <input
+                        value={slot.subtitle}
+                        onChange={(event) =>
+                          updateTimeSlot(index, "subtitle", event.target.value)
+                        }
+                        className={inputClassName}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeTimeSlot(index)}
+                      disabled={draftSettings.timeSlots.length <= 1}
+                      className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-full border border-white/10 bg-black/20 px-4 text-sm font-semibold text-[#f6e8e0]/75 transition hover:border-white/20 hover:text-[#f6e8e0] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Remove
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-[22px] border border-white/10 bg-black/18 p-4 sm:p-5 xl:col-span-2">
               <h3 className="text-lg font-semibold text-[#f7e8e2]">Packages</h3>
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
                 {draftSettings.packages.map((pkg, index) => (
