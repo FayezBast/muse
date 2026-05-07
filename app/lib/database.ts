@@ -26,6 +26,56 @@ export function isProductionRuntime() {
   return process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT);
 }
 
+function getPostgresSslMode(connectionString: string) {
+  const envSslMode = process.env.PGSSLMODE?.toLowerCase();
+
+  if (envSslMode) {
+    return envSslMode;
+  }
+
+  try {
+    return new URL(connectionString).searchParams.get("sslmode")?.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function removePostgresSslMode(connectionString: string) {
+  try {
+    const url = new URL(connectionString);
+
+    if (!url.searchParams.has("sslmode")) {
+      return connectionString;
+    }
+
+    url.searchParams.delete("sslmode");
+    return url.toString();
+  } catch {
+    return connectionString;
+  }
+}
+
+function getPostgresSslConfig(connectionString: string) {
+  const sslMode = getPostgresSslMode(connectionString);
+
+  if (!sslMode || sslMode === "disable") {
+    return undefined;
+  }
+
+  if (sslMode === "verify-ca" || sslMode === "verify-full") {
+    return { rejectUnauthorized: true };
+  }
+
+  return { rejectUnauthorized: false };
+}
+
+function getPostgresConnectionConfig(connectionString: string) {
+  return {
+    connectionString: removePostgresSslMode(connectionString),
+    ssl: getPostgresSslConfig(connectionString),
+  };
+}
+
 export function getPool() {
   const connectionString = process.env.DATABASE_URL;
 
@@ -39,11 +89,10 @@ export function getPool() {
 
   if (!globalThis.musePgPool) {
     globalThis.musePgPool = new Pool({
-      connectionString,
+      ...getPostgresConnectionConfig(connectionString),
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 30_000,
       max: Number(process.env.PG_POOL_MAX ?? 5),
-      ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: true } : undefined,
     });
 
     globalThis.musePgPool.on("error", (error) => {

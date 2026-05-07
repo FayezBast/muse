@@ -47,10 +47,60 @@ if (!databaseUrl) {
 const { Pool } = pg;
 const rootDir = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const migrationsDir = join(rootDir, "migrations");
+
+function getPostgresSslMode(connectionString) {
+  const envSslMode = process.env.PGSSLMODE?.toLowerCase();
+
+  if (envSslMode) {
+    return envSslMode;
+  }
+
+  try {
+    return new URL(connectionString).searchParams.get("sslmode")?.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function removePostgresSslMode(connectionString) {
+  try {
+    const url = new URL(connectionString);
+
+    if (!url.searchParams.has("sslmode")) {
+      return connectionString;
+    }
+
+    url.searchParams.delete("sslmode");
+    return url.toString();
+  } catch {
+    return connectionString;
+  }
+}
+
+function getPostgresSslConfig(connectionString) {
+  const sslMode = getPostgresSslMode(connectionString);
+
+  if (!sslMode || sslMode === "disable") {
+    return undefined;
+  }
+
+  if (sslMode === "verify-ca" || sslMode === "verify-full") {
+    return { rejectUnauthorized: true };
+  }
+
+  return { rejectUnauthorized: false };
+}
+
+function getPostgresConnectionConfig(connectionString) {
+  return {
+    connectionString: removePostgresSslMode(connectionString),
+    ssl: getPostgresSslConfig(connectionString),
+  };
+}
+
 const pool = new Pool({
-  connectionString: databaseUrl,
+  ...getPostgresConnectionConfig(databaseUrl),
   max: 1,
-  ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: true } : undefined,
 });
 
 async function ensureMigrationTable(client) {
