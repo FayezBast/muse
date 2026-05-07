@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
 import { queueBookingNotifications } from "../../lib/email-queue";
+import { auth, clerkClient } from "../../lib/auth-server";
 import {
   type BookingOwner,
   BookingValidationError,

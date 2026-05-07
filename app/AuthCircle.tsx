@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
+import { SignInButton, useAuth, useUser } from "./lib/auth-client";
 
 type AuthCircleProps = {
   onMyBookingsClick?: () => void;

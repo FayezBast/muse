@@ -1,8 +1,8 @@
 "use client";
 
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import AuthCircle from "../AuthCircle";
+import { useAuth } from "../lib/auth-client";
 import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,

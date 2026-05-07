@@ -1,6 +1,6 @@
-import { auth } from "@clerk/nextjs/server";
 import AdminDashboardClient from "./AdminDashboardClient";
 import AuthCircle from "../AuthCircle";
+import { auth } from "../lib/auth-server";
 import { StaffAuthError, requireStaff } from "../lib/staff-auth";
 
 export const dynamic = "force-dynamic";

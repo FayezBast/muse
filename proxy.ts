@@ -1,6 +1,11 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-export default clerkMiddleware();
+const useE2eAuthMock =
+  process.env.E2E_AUTH_MOCK === "true" ||
+  process.env.NEXT_PUBLIC_E2E_AUTH_MOCK === "true";
+
+export default useE2eAuthMock ? () => NextResponse.next() : clerkMiddleware();
 
 export const config = {
   matcher: [

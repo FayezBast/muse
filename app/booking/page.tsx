@@ -11,11 +11,11 @@ import {
   useEffect,
   useState,
 } from "react";
-import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "motion/react";
 import heroImage from "../../assets/hero-pilates.jpg";
 import museWordmark from "../../assets/muse-wordmark.png";
 import AuthCircle from "../AuthCircle";
+import { SignInButton, useAuth, useUser } from "../lib/auth-client";
 import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,

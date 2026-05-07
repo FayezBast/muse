@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
 import StaffAutoRedirect from "./StaffAutoRedirect";
+import { AppClerkProvider } from "./lib/auth-client";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,10 +24,10 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <ClerkProvider>
+        <AppClerkProvider>
           <StaffAutoRedirect />
           {children}
-        </ClerkProvider>
+        </AppClerkProvider>
       </body>
     </html>
   );

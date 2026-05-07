@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "./lib/auth-client";
 
 type StaffRedirectResponse = {
   destination?: "/admin" | "/instructor" | null;

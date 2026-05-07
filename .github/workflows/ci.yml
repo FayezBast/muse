@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 20
 
     env:
+      E2E_AUTH_MOCK: "true"
+      NEXT_PUBLIC_E2E_AUTH_MOCK: "true"
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:

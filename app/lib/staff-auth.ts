@@ -1,6 +1,6 @@
 import "server-only";
 
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "./auth-server";
 import {
   resolveStaffRoleFromMetadata,
   type StaffRole,
