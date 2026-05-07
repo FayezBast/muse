@@ -3,6 +3,7 @@
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import AuthCircle from "../AuthCircle";
+import { getStudioTodayIso } from "../lib/booking-config";
 
 type StaffBookingDetail = {
   id: string;
@@ -58,12 +59,6 @@ type InstructorScheduleResponse = {
 const panelClassName =
   "rounded-[26px] border border-white/10 bg-white/[0.045] shadow-[0_24px_70px_rgba(0,0,0,0.34)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.055),transparent_100%)]";
 
-function formatIsoDate(date: Date) {
-  const adjusted = new Date(date);
-  adjusted.setMinutes(adjusted.getMinutes() - adjusted.getTimezoneOffset());
-  return adjusted.toISOString().split("T")[0] ?? "";
-}
-
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -75,7 +70,7 @@ function getInitials(name: string) {
 
 export default function InstructorPage() {
   const { isLoaded, isSignedIn } = useAuth();
-  const [selectedDate, setSelectedDate] = useState(() => formatIsoDate(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => getStudioTodayIso());
   const [schedule, setSchedule] = useState<InstructorScheduleResponse | null>(null);
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);

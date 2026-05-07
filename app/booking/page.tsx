@@ -20,8 +20,11 @@ import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,
   TIME_SLOTS,
+  addDaysToIsoDate,
+  formatStudioCalendarDateTime,
   getClassType,
   getMaxGuestsPerTime,
+  getStudioTodayIso,
   isTimeSlotPast,
   type ClassTypeId,
   type StudioClassType,
@@ -86,7 +89,7 @@ type UserBookingSummary = {
 };
 
 type BookingNotificationStatus = {
-  status: "sent" | "skipped" | "failed";
+  status: "sent" | "skipped" | "failed" | "queued";
   reason?: string;
 };
 
@@ -182,20 +185,21 @@ function createEmptyForm(date = ""): BookingFormState {
   };
 }
 
+function createStudioDate(dateIso: string) {
+  const [year, month, day] = dateIso.split("-").map(Number);
+
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
 function formatIsoDate(date: Date) {
-  const adjusted = new Date(date);
-  adjusted.setMinutes(adjusted.getMinutes() - adjusted.getTimezoneOffset());
-  return adjusted.toISOString().split("T")[0] ?? "";
+  return date.toISOString().split("T")[0] ?? "";
 }
 
 function buildDates(baseDate: Date, count = 7) {
-  const anchor = new Date(baseDate);
-  anchor.setHours(12, 0, 0, 0);
+  const anchorIso = getStudioTodayIso(baseDate);
 
   return Array.from({ length: count }, (_, index) => {
-    const date = new Date(anchor);
-    date.setDate(anchor.getDate() + index);
-    return date;
+    return createStudioDate(addDaysToIsoDate(anchorIso, index));
   });
 }
 
@@ -272,59 +276,8 @@ function formatBookingSummaryDate(dateIso: string) {
   }).format(new Date(year, month - 1, day));
 }
 
-function parseBookingTime(time: string) {
-  const match = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-
-  if (!match) {
-    return undefined;
-  }
-
-  const [, rawHour, rawMinute, period] = match;
-  const hour = Number(rawHour);
-  const minute = Number(rawMinute);
-
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    return undefined;
-  }
-
-  return {
-    hour: period.toUpperCase() === "PM" ? (hour % 12) + 12 : hour % 12,
-    minute,
-  };
-}
-
-function formatCalendarDateTime(dateIso: string, time: string, durationMinutes = 50) {
-  const parsedTime = parseBookingTime(time);
-
-  if (!parsedTime) {
-    return undefined;
-  }
-
-  const [year, month, day] = dateIso.split("-").map(Number);
-
-  if (!year || !month || !day) {
-    return undefined;
-  }
-
-  const start = new Date(year, month - 1, day, parsedTime.hour, parsedTime.minute);
-  const end = new Date(start);
-  end.setMinutes(start.getMinutes() + durationMinutes);
-
-  const compact = (date: Date) =>
-    `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(
-      date.getDate(),
-    ).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}${String(
-      date.getMinutes(),
-    ).padStart(2, "0")}00`;
-
-  return {
-    start: compact(start),
-    end: compact(end),
-  };
-}
-
 function buildGoogleCalendarUrl(booking: UserBookingSummary) {
-  const dates = formatCalendarDateTime(booking.date, booking.time);
+  const dates = formatStudioCalendarDateTime(booking.date, booking.time);
   const params = new URLSearchParams({
     action: "TEMPLATE",
     text: `MUSE Pilates - ${booking.sessionLabel}`,
@@ -341,7 +294,7 @@ function buildGoogleCalendarUrl(booking: UserBookingSummary) {
 }
 
 function buildIcsDataUrl(booking: UserBookingSummary) {
-  const dates = formatCalendarDateTime(booking.date, booking.time);
+  const dates = formatStudioCalendarDateTime(booking.date, booking.time);
 
   if (!dates) {
     return "";
@@ -352,6 +305,7 @@ function buildIcsDataUrl(booking: UserBookingSummary) {
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//MUSE Pilates//Booking//EN",
+    "X-WR-TIMEZONE:Asia/Beirut",
     "BEGIN:VEVENT",
     `UID:${uid}`,
     `DTSTAMP:${new Date().toISOString().replaceAll(/[-:]/g, "").split(".")[0]}Z`,
@@ -389,6 +343,14 @@ function resolveNextNotes(
   return currentNotes;
 }
 
+function createIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now()}.${Math.random().toString(36).slice(2)}`;
+}
+
 export default function BookingPage() {
   const shouldReduceMotion = useReducedMotion();
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
@@ -416,7 +378,7 @@ export default function BookingPage() {
   const [cancellingBookingId, setCancellingBookingId] = useState("");
   const [clock, setClock] = useState(() => new Date());
   const [form, setForm] = useState<BookingFormState>(() =>
-    createEmptyForm(formatIsoDate(new Date())),
+    createEmptyForm(getStudioTodayIso()),
   );
 
   const activeDate = dates[selectedDateIndex];
@@ -479,7 +441,7 @@ export default function BookingPage() {
 
   function buildBookingAuthRedirectUrl(slot?: ClassSlot, classTypeId?: ClassTypeId) {
     const params = new URLSearchParams({ book: "1" });
-    const date = activeDateIso || form.date || formatIsoDate(new Date());
+    const date = activeDateIso || form.date || getStudioTodayIso(clock);
 
     params.set("date", date);
 
@@ -631,7 +593,7 @@ export default function BookingPage() {
 
   useEffect(() => {
     const nextDates = buildDates(new Date());
-    const nextDateIso = formatIsoDate(nextDates[0] ?? new Date());
+    const nextDateIso = getStudioTodayIso();
 
     setDates((currentDates) => {
       const currentDateIso = currentDates[0] ? formatIsoDate(currentDates[0]) : "";
@@ -691,7 +653,7 @@ export default function BookingPage() {
     const requestedDate = params.get("date");
     const nextDate = isIsoDateParam(requestedDate)
       ? requestedDate
-      : activeDateIso || formatIsoDate(new Date());
+      : activeDateIso || getStudioTodayIso(clock);
     const requestedTime = params.get("time") ?? "";
     const nextTime = TIME_SLOTS.some((slot) => slot.time === requestedTime)
       ? requestedTime
@@ -815,7 +777,7 @@ export default function BookingPage() {
     setStatusMessage("");
     setForm((current) => ({
       ...current,
-      date: formatIsoDate(dates[index] ?? new Date()),
+      date: dates[index] ? formatIsoDate(dates[index]) : getStudioTodayIso(clock),
       time: "",
       session: "",
       requestType: "booking",
@@ -831,7 +793,7 @@ export default function BookingPage() {
     setStatusMessage("");
     setForm((current) => ({
       ...current,
-      date: current.date || formatIsoDate(activeDate ?? new Date()),
+      date: current.date || (activeDate ? formatIsoDate(activeDate) : getStudioTodayIso(clock)),
       time: "",
       session: "",
       requestType: "booking",
@@ -859,7 +821,7 @@ export default function BookingPage() {
       return;
     }
 
-    const nextDate = formatIsoDate(activeDate ?? new Date());
+    const nextDate = activeDate ? formatIsoDate(activeDate) : getStudioTodayIso(clock);
 
     if (isTimeSlotPast(nextDate, slot.time, clock)) {
       setStatusMessage("This class time is no longer available.");
@@ -937,6 +899,7 @@ export default function BookingPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Idempotency-Key": createIdempotencyKey(),
         },
         body: JSON.stringify(form),
       });
@@ -967,6 +930,8 @@ export default function BookingPage() {
       const notificationNote =
         payload?.notification?.status === "sent"
           ? " Confirmation emails were sent."
+          : payload?.notification?.status === "queued"
+            ? " Confirmation emails are queued."
           : payload?.notification?.status === "skipped"
             ? " Booking saved; email notifications are not configured yet."
             : payload?.notification?.status === "failed"
@@ -985,7 +950,9 @@ export default function BookingPage() {
         }${notificationNote}`,
       );
 
-      setForm(createEmptyForm(formatIsoDate(activeDate ?? new Date())));
+      setForm(
+        createEmptyForm(activeDate ? formatIsoDate(activeDate) : getStudioTodayIso(clock)),
+      );
     } catch (error) {
       setStatusMessage(
         error instanceof Error
@@ -1842,7 +1809,7 @@ export default function BookingPage() {
                           required
                           name="date"
                           type="date"
-                          min={formatIsoDate(new Date())}
+                          min={getStudioTodayIso(clock)}
                           value={form.date}
                           onChange={handleFieldChange}
                           className={fieldClassName}

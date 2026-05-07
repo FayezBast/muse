@@ -9,6 +9,9 @@ out/
 dist/
 build/
 coverage/
+tsconfig.tsbuildinfo
+test-results/
+playwright-report/
 
 # Legacy static site files
 index.html

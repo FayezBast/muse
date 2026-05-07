@@ -10,11 +10,18 @@ import {
   formatPriceLabel,
   getClassType,
   getTimeSlot,
+  isWithinCancellationCutoff,
   isTimeSlotPast,
   type StudioClassType,
 } from "./booking-config";
-import { getPool } from "./database";
+import {
+  DatabaseNotConfiguredError,
+  getPool,
+  isProductionRuntime,
+} from "./database";
 import { getStudioSettings, type StudioSettings } from "./studio-settings";
+
+export { DatabaseNotConfiguredError } from "./database";
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<{
@@ -58,6 +65,7 @@ type StoredBooking = {
   name: string;
   email: string;
   phone: string | null;
+  idempotencyKey?: string | null;
   session: string;
   classDate: string;
   classTime: string;
@@ -85,6 +93,7 @@ export type BookingInput = {
   date?: unknown;
   time?: unknown;
   notes?: unknown;
+  idempotencyKey?: unknown;
 };
 
 export type BookingOwner = {
@@ -93,13 +102,6 @@ export type BookingOwner = {
   name: string;
   email: string;
 };
-
-export class DatabaseNotConfiguredError extends Error {
-  constructor() {
-    super("DATABASE_URL is not configured.");
-    this.name = "DatabaseNotConfiguredError";
-  }
-}
 
 export class BookingValidationError extends Error {
   constructor(message: string) {
@@ -120,8 +122,11 @@ async function createSchema(queryable: Queryable) {
     CREATE TABLE IF NOT EXISTS bookings (
       id BIGSERIAL PRIMARY KEY,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cancelled_at TIMESTAMPTZ,
       user_id TEXT,
       session_id TEXT,
+      idempotency_key TEXT,
       name TEXT NOT NULL,
       email TEXT NOT NULL,
       phone TEXT,
@@ -147,6 +152,13 @@ async function createSchema(queryable: Queryable) {
   `);
 
   await queryable.query(`
+    ALTER TABLE bookings
+      ADD COLUMN IF NOT EXISTS idempotency_key TEXT,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+  `);
+
+  await queryable.query(`
     CREATE INDEX IF NOT EXISTS bookings_lookup_idx
       ON bookings (class_date, class_time, session, status);
   `);
@@ -155,12 +167,28 @@ async function createSchema(queryable: Queryable) {
     CREATE INDEX IF NOT EXISTS bookings_user_idx
       ON bookings (user_id, created_at DESC);
   `);
+
+  await queryable.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS bookings_one_active_user_per_class_idx
+      ON bookings (user_id, class_date, class_time, session)
+      WHERE status IN ('confirmed', 'waitlist');
+  `);
+
+  await queryable.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS bookings_idempotency_idx
+      ON bookings (user_id, idempotency_key)
+      WHERE idempotency_key IS NOT NULL;
+  `);
 }
 
 export async function ensureBookingSchema() {
   const pool = getPool();
 
   if (!pool) {
+    return;
+  }
+
+  if (isProductionRuntime()) {
     return;
   }
 
@@ -180,6 +208,20 @@ function isIsoDate(value: string) {
 
 function cleanText(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalizeIdempotencyKey(value: unknown) {
+  const key = cleanText(value);
+
+  if (!key) {
+    return null;
+  }
+
+  if (key.length < 16 || key.length > 120 || !/^[a-zA-Z0-9._:-]+$/.test(key)) {
+    throw new BookingValidationError("Invalid idempotency key.");
+  }
+
+  return key;
 }
 
 function normalizeDates(dates: string[]) {
@@ -289,6 +331,9 @@ function isStoredBooking(value: unknown): value is StoredBooking {
     (typeof booking.sessionId === "string" ||
       typeof booking.sessionId === "undefined" ||
       booking.sessionId === null) &&
+    (typeof booking.idempotencyKey === "string" ||
+      typeof booking.idempotencyKey === "undefined" ||
+      booking.idempotencyKey === null) &&
     typeof booking.name === "string" &&
     typeof booking.email === "string" &&
     (typeof booking.phone === "string" || booking.phone === null) &&
@@ -451,6 +496,7 @@ function normalizeBookingInput(
   const date = cleanText(input.date);
   const time = cleanText(input.time);
   const notes = cleanText(input.notes);
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   const classType = getClassType(session, settings.classTypes);
   const timeSlot = getTimeSlot(time);
 
@@ -486,6 +532,7 @@ function normalizeBookingInput(
     date,
     time: timeSlot.time,
     notes: notes.slice(0, 2000),
+    idempotencyKey,
     classType,
   };
 }
@@ -619,6 +666,40 @@ async function createLocalBooking(
 ) {
   return withLocalBookingLock(async () => {
     const bookings = await readLocalBookings();
+    const idempotentBooking = booking.idempotencyKey
+      ? bookings.find(
+          (storedBooking) =>
+            storedBooking.userId === owner.userId &&
+            storedBooking.idempotencyKey === booking.idempotencyKey &&
+            (storedBooking.status === "confirmed" ||
+              storedBooking.status === "waitlist"),
+        )
+      : undefined;
+
+    if (idempotentBooking) {
+      return {
+        booking: buildBookingResponse(idempotentBooking, booking),
+        availability: buildAvailabilityFromStoredBookings(bookings, [
+          booking.date,
+        ], settings.classTypes),
+      };
+    }
+
+    const duplicateBooking = bookings.find(
+      (storedBooking) =>
+        storedBooking.userId === owner.userId &&
+        storedBooking.classDate === booking.date &&
+        storedBooking.classTime === booking.time &&
+        storedBooking.session === booking.session &&
+        (storedBooking.status === "confirmed" || storedBooking.status === "waitlist"),
+    );
+
+    if (duplicateBooking) {
+      throw new BookingValidationError(
+        "You already have an active booking for this class.",
+      );
+    }
+
     const bookedCount = bookings.filter(
       (storedBooking) =>
         storedBooking.classDate === booking.date &&
@@ -634,6 +715,7 @@ async function createLocalBooking(
       createdAt: new Date().toISOString(),
       userId: owner.userId,
       sessionId: owner.sessionId,
+      idempotencyKey: booking.idempotencyKey,
       name: booking.name,
       email: booking.email,
       phone: booking.phone || null,
@@ -681,6 +763,60 @@ export async function createBooking(owner: BookingOwner, input: BookingInput) {
       `${booking.date}|${booking.time}|${booking.session}`,
     ]);
 
+    if (booking.idempotencyKey) {
+      const idempotentResult = await client.query<{
+        id: string;
+        created_at: string | Date;
+        request_type: RequestType;
+        status: BookingStatus;
+      }>(
+        `
+          SELECT id::text AS id, created_at, request_type, status
+          FROM bookings
+          WHERE user_id = $1
+            AND idempotency_key = $2
+            AND status IN ('confirmed', 'waitlist')
+          LIMIT 1;
+        `,
+        [owner.userId, booking.idempotencyKey],
+      );
+      const idempotentBooking = idempotentResult.rows[0];
+
+      if (idempotentBooking) {
+        await client.query("COMMIT");
+
+        return {
+          booking: buildBookingResponse({
+            id: idempotentBooking.id,
+            createdAt: formatCreatedAt(idempotentBooking.created_at) ?? "",
+            requestType: idempotentBooking.request_type,
+            status: idempotentBooking.status,
+          }, booking),
+          availability: await getAvailability([booking.date]),
+        };
+      }
+    }
+
+    const duplicateResult = await client.query<{ id: string }>(
+      `
+        SELECT id::text AS id
+        FROM bookings
+        WHERE user_id = $1
+          AND class_date = $2::date
+          AND class_time = $3
+          AND session = $4
+          AND status IN ('confirmed', 'waitlist')
+        LIMIT 1;
+      `,
+      [owner.userId, booking.date, booking.time, booking.session],
+    );
+
+    if (duplicateResult.rows[0]) {
+      throw new BookingValidationError(
+        "You already have an active booking for this class.",
+      );
+    }
+
     const countResult = await client.query<{ booked_count: number }>(
       `
         SELECT COUNT(*)::int AS booked_count
@@ -714,13 +850,14 @@ export async function createBooking(owner: BookingOwner, input: BookingInput) {
           session,
           class_date,
           class_time,
+          idempotency_key,
           request_type,
           status,
           notes,
           price_cents,
           capacity_snapshot
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id, created_at, request_type, status;
       `,
       [
@@ -732,6 +869,7 @@ export async function createBooking(owner: BookingOwner, input: BookingInput) {
         booking.session,
         booking.date,
         booking.time,
+        booking.idempotencyKey,
         requestType,
         status,
         booking.notes || null,
@@ -756,6 +894,16 @@ export async function createBooking(owner: BookingOwner, input: BookingInput) {
     };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code?: string }).code === "23505"
+    ) {
+      throw new BookingValidationError(
+        "You already have an active booking for this class.",
+      );
+    }
+
     throw error;
   } finally {
     client.release();
@@ -848,15 +996,37 @@ export async function cancelUserBooking(
         throw new BookingValidationError("Booking was not found.");
       }
 
-      if (isTimeSlotPast(booking.classDate, booking.classTime)) {
-        throw new BookingValidationError("This class can no longer be cancelled.");
+      if (isWithinCancellationCutoff(booking.classDate, booking.classTime)) {
+        throw new BookingValidationError(
+          "Cancellations close 4 hours before class starts.",
+        );
       }
 
       const cancelledBooking: StoredBooking = {
         ...booking,
         status: "cancelled",
       };
-      const nextBookings = bookings.toSpliced(bookingIndex, 1, cancelledBooking);
+      let nextBookings = bookings.toSpliced(bookingIndex, 1, cancelledBooking);
+
+      if (booking.status === "confirmed") {
+        const waitlistIndex = nextBookings.findIndex(
+          (storedBooking) =>
+            storedBooking.classDate === booking.classDate &&
+            storedBooking.classTime === booking.classTime &&
+            storedBooking.session === booking.session &&
+            storedBooking.status === "waitlist",
+        );
+
+        if (waitlistIndex !== -1) {
+          const waitlistBooking = nextBookings[waitlistIndex];
+
+          nextBookings = nextBookings.toSpliced(waitlistIndex, 1, {
+            ...waitlistBooking,
+            requestType: "booking",
+            status: "confirmed",
+          });
+        }
+      }
       const cancelledSummary =
         buildUserBookingSummary({
           ...cancelledBooking,
@@ -885,51 +1055,102 @@ export async function cancelUserBooking(
   }
 
   await ensureBookingSchema();
-  const result = await pool.query<{
-    id: string;
-    created_at: string | Date;
-    status: BookingStatus;
-    session: string;
-    class_date: string;
-    class_time: string;
-    price_cents: number;
-  }>(
-    `
-      WITH target AS (
+  const client = await pool.connect();
+  let cancelledBooking:
+    | {
+        id: string;
+        created_at: string | Date;
+        status: BookingStatus;
+        session: string;
+        class_date: string;
+        class_time: string;
+        price_cents: number;
+      }
+    | undefined;
+
+  try {
+    await client.query("BEGIN");
+
+    const targetResult = await client.query<{
+      id: string;
+      created_at: string | Date;
+      status: BookingStatus;
+      session: string;
+      class_date: string;
+      class_time: string;
+      price_cents: number;
+    }>(
+      `
         SELECT
-          id,
+          id::text AS id,
           created_at,
           status,
           session,
-          class_date,
+          to_char(class_date, 'YYYY-MM-DD') AS class_date,
           class_time,
           price_cents
         FROM bookings
         WHERE id::text = $1
           AND user_id = $2
           AND status IN ('confirmed', 'waitlist')
-          AND class_date >= CURRENT_DATE
-        FOR UPDATE
-      ),
-      cancelled AS (
+        FOR UPDATE;
+      `,
+      [normalizedBookingId, userId],
+    );
+    const target = targetResult.rows[0];
+
+    if (!target) {
+      throw new BookingValidationError("Booking was not found or can no longer be cancelled.");
+    }
+
+    if (isWithinCancellationCutoff(target.class_date, target.class_time)) {
+      throw new BookingValidationError(
+        "Cancellations close 4 hours before class starts.",
+      );
+    }
+
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1));", [
+      `${target.class_date}|${target.class_time}|${target.session}`,
+    ]);
+
+    await client.query(
+      `
         UPDATE bookings
-        SET status = 'cancelled'
-        FROM target
-        WHERE bookings.id = target.id
-        RETURNING
-          target.id::text AS id,
-          target.created_at,
-          target.status,
-          target.session,
-          to_char(target.class_date, 'YYYY-MM-DD') AS class_date,
-          target.class_time,
-          target.price_cents
-        )
-      SELECT * FROM cancelled;
-    `,
-    [normalizedBookingId, userId],
-  );
-  const cancelledBooking = result.rows[0];
+        SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+        WHERE id::text = $1;
+      `,
+      [target.id],
+    );
+
+    if (target.status === "confirmed") {
+      await client.query(
+        `
+          UPDATE bookings
+          SET status = 'confirmed', request_type = 'booking', updated_at = NOW()
+          WHERE id = (
+            SELECT id
+            FROM bookings
+            WHERE class_date = $1::date
+              AND class_time = $2
+              AND session = $3
+              AND status = 'waitlist'
+            ORDER BY created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+          );
+        `,
+        [target.class_date, target.class_time, target.session],
+      );
+    }
+
+    await client.query("COMMIT");
+    cancelledBooking = target;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 
   if (!cancelledBooking) {
     throw new BookingValidationError("Booking was not found or can no longer be cancelled.");
@@ -1274,12 +1495,185 @@ export async function getInstructorSchedule(
   return buildScheduleForDate(bookings, date, settings);
 }
 
+async function getOwnerDashboardFromDatabase(
+  date: string,
+  endDate: string,
+  settings: StudioSettings,
+): Promise<OwnerDashboardResponse | undefined> {
+  const pool = getPool();
+
+  if (!pool) {
+    return undefined;
+  }
+
+  await ensureBookingSchema();
+
+  const [statsResult, classStatsResult, recentResult, scheduleBookings] =
+    await Promise.all([
+      pool.query<{
+        confirmed_today: number;
+        waitlist_today: number;
+        upcoming_confirmed: number;
+        upcoming_waitlist: number;
+        revenue_next_30_cents: number;
+        booked_capacity_today: number;
+      }>(
+        `
+          SELECT
+            COUNT(*) FILTER (WHERE class_date = $1::date AND status = 'confirmed')::int AS confirmed_today,
+            COUNT(*) FILTER (WHERE class_date = $1::date AND status = 'waitlist')::int AS waitlist_today,
+            COUNT(*) FILTER (WHERE status = 'confirmed')::int AS upcoming_confirmed,
+            COUNT(*) FILTER (WHERE status = 'waitlist')::int AS upcoming_waitlist,
+            COALESCE(SUM(price_cents) FILTER (WHERE status = 'confirmed'), 0)::int AS revenue_next_30_cents,
+            COUNT(*) FILTER (WHERE class_date = $1::date AND status = 'confirmed')::int AS booked_capacity_today
+          FROM bookings
+          WHERE class_date BETWEEN $1::date AND $2::date
+            AND status IN ('confirmed', 'waitlist');
+        `,
+        [date, endDate],
+      ),
+      pool.query<{
+        session: string;
+        confirmed: number;
+        waitlist: number;
+        revenue_cents: number;
+      }>(
+        `
+          SELECT
+            session,
+            COUNT(*) FILTER (WHERE status = 'confirmed')::int AS confirmed,
+            COUNT(*) FILTER (WHERE status = 'waitlist')::int AS waitlist,
+            COALESCE(SUM(price_cents) FILTER (WHERE status = 'confirmed'), 0)::int AS revenue_cents
+          FROM bookings
+          WHERE class_date BETWEEN $1::date AND $2::date
+            AND status IN ('confirmed', 'waitlist')
+          GROUP BY session;
+        `,
+        [date, endDate],
+      ),
+      pool.query<{
+        id: string;
+        created_at: string | Date;
+        user_id: string | null;
+        session_id: string | null;
+        name: string;
+        email: string;
+        phone: string | null;
+        session: string;
+        class_date: string;
+        class_time: string;
+        request_type: RequestType;
+        status: BookingStatus | "cancelled";
+        notes: string | null;
+        price_cents: number;
+        capacity_snapshot: number;
+      }>(
+        `
+          SELECT
+            id::text AS id,
+            created_at,
+            user_id,
+            session_id,
+            name,
+            email,
+            phone,
+            session,
+            to_char(class_date, 'YYYY-MM-DD') AS class_date,
+            class_time,
+            request_type,
+            status,
+            notes,
+            price_cents,
+            capacity_snapshot
+          FROM bookings
+          WHERE class_date BETWEEN $1::date AND $2::date
+            AND status IN ('confirmed', 'waitlist')
+          ORDER BY created_at DESC
+          LIMIT 8;
+        `,
+        [date, endDate],
+      ),
+      getStaffBookingsBetween(date, date),
+    ]);
+  const stats = statsResult.rows[0] ?? {
+    confirmed_today: 0,
+    waitlist_today: 0,
+    upcoming_confirmed: 0,
+    upcoming_waitlist: 0,
+    revenue_next_30_cents: 0,
+    booked_capacity_today: 0,
+  };
+  const classStatsBySession = new Map(
+    classStatsResult.rows.map((row) => [row.session, row]),
+  );
+  const todayCapacity = TIME_SLOTS.length * settings.classTypes.reduce(
+    (total, classType) => total + classType.capacity,
+    0,
+  );
+  const recentBookings = recentResult.rows.map((row) =>
+    buildStaffBookingDetail({
+      id: row.id,
+      createdAt: formatCreatedAt(row.created_at) ?? "",
+      userId: row.user_id,
+      sessionId: row.session_id,
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+      session: row.session,
+      classDate: row.class_date,
+      classTime: row.class_time,
+      requestType: row.request_type,
+      status: row.status,
+      notes: row.notes,
+      priceCents: row.price_cents,
+      capacitySnapshot: row.capacity_snapshot,
+    } as StoredBooking & { status: BookingStatus }, settings.classTypes),
+  );
+
+  return {
+    date,
+    dateLabel: formatStaffDateLabel(date),
+    stats: {
+      confirmedToday: stats.confirmed_today,
+      waitlistToday: stats.waitlist_today,
+      upcomingConfirmed: stats.upcoming_confirmed,
+      upcomingWaitlist: stats.upcoming_waitlist,
+      revenueNext30Cents: stats.revenue_next_30_cents,
+      revenueNext30Label: formatPriceLabel(stats.revenue_next_30_cents),
+      bookedCapacityToday: stats.booked_capacity_today,
+      totalCapacityToday: todayCapacity,
+    },
+    classStats: settings.classTypes.map((classType) => {
+      const row = classStatsBySession.get(classType.id);
+      const revenueCents = row?.revenue_cents ?? 0;
+
+      return {
+        id: classType.id,
+        label: classType.label,
+        confirmed: row?.confirmed ?? 0,
+        waitlist: row?.waitlist ?? 0,
+        revenueCents,
+        revenueLabel: formatPriceLabel(revenueCents),
+      };
+    }),
+    recentBookings,
+    schedule: buildScheduleForDate(scheduleBookings, date, settings),
+    settings,
+  };
+}
+
 export async function getOwnerDashboard(
   requestedDate?: string | null,
 ): Promise<OwnerDashboardResponse> {
   const date = normalizeOptionalDate(requestedDate);
   const endDate = addDays(date, 30);
   const settings = await getStudioSettings();
+  const databaseDashboard = await getOwnerDashboardFromDatabase(date, endDate, settings);
+
+  if (databaseDashboard) {
+    return databaseDashboard;
+  }
+
   const bookings = await getStaffBookingsBetween(date, endDate);
   const activeBookings = bookings.filter(isActiveStaffBooking);
   const todayBookings = activeBookings.filter((booking) => booking.classDate === date);

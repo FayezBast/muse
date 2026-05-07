@@ -6,6 +6,7 @@ import AuthCircle from "../AuthCircle";
 import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,
+  getStudioTodayIso,
   type StudioClassType,
   type StudioPackage,
 } from "../lib/booking-config";
@@ -111,12 +112,6 @@ function createDefaultSettings(): StudioSettings {
   };
 }
 
-function formatIsoDate(date: Date) {
-  const adjusted = new Date(date);
-  adjusted.setMinutes(adjusted.getMinutes() - adjusted.getTimezoneOffset());
-  return adjusted.toISOString().split("T")[0] ?? "";
-}
-
 function priceInputValue(priceCents: number) {
   const dollars = priceCents / 100;
 
@@ -150,7 +145,7 @@ function formatDateTime(value: string) {
 
 export default function AdminPage() {
   const { isLoaded, isSignedIn } = useAuth();
-  const [selectedDate, setSelectedDate] = useState(() => formatIsoDate(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => getStudioTodayIso());
   const [dashboard, setDashboard] = useState<OwnerDashboardResponse | null>(null);
   const [draftSettings, setDraftSettings] = useState<StudioSettings>(() =>
     createDefaultSettings(),

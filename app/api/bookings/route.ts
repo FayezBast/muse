@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { sendBookingNotifications } from "../../lib/email";
+import { queueBookingNotifications } from "../../lib/email-queue";
 import {
   type BookingOwner,
   BookingValidationError,
@@ -9,6 +9,17 @@ import {
   createBooking,
   getUserBookings,
 } from "../../lib/bookings";
+import {
+  assertRateLimit,
+  getRateLimitIdentity,
+  rateLimitErrorResponse,
+} from "../../lib/rate-limit";
+import {
+  assertSameOrigin,
+  jsonError,
+  parseJsonBody,
+} from "../../lib/security";
+import { bookingInputSchema, cancelBookingSchema } from "../../lib/validation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,7 +51,7 @@ async function getAuthenticatedBookingOwner(): Promise<BookingOwner | undefined>
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const { userId } = await auth();
 
   if (!userId) {
@@ -48,8 +59,20 @@ export async function GET() {
   }
 
   try {
+    await assertRateLimit({
+      key: `bookings:get:${userId}:${getRateLimitIdentity(request)}`,
+      limit: 60,
+      windowSeconds: 60,
+    });
+
     return NextResponse.json({ bookings: await getUserBookings(userId) });
   } catch (error) {
+    const rateLimitResponse = rateLimitErrorResponse(error);
+
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     if (error instanceof DatabaseNotConfiguredError) {
       return NextResponse.json({ error: error.message }, { status: 503 });
     }
@@ -62,8 +85,15 @@ export async function POST(request: Request) {
   let owner: BookingOwner | undefined;
 
   try {
+    assertSameOrigin(request);
     owner = await getAuthenticatedBookingOwner();
   } catch (error) {
+    const securityResponse = jsonError(error, "Unable to verify your account.");
+
+    if (securityResponse.status !== 500) {
+      return securityResponse;
+    }
+
     if (error instanceof BookingValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -75,17 +105,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to book a class." }, { status: 401 });
   }
 
-  let payload: unknown;
-
   try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Send booking details as JSON." }, { status: 400 });
+    await assertRateLimit({
+      key: `bookings:post:${owner.userId}:${getRateLimitIdentity(request)}`,
+      limit: 8,
+      windowSeconds: 60,
+    });
+  } catch (error) {
+    const rateLimitResponse = rateLimitErrorResponse(error);
+
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
+    return NextResponse.json({ error: "Unable to protect booking endpoint." }, { status: 503 });
   }
 
   try {
-    const result = await createBooking(owner, payload ?? {});
-    const notificationResult = await sendBookingNotifications(result.notification);
+    const payload = await parseJsonBody(request, bookingInputSchema);
+    const result = await createBooking(owner, {
+      ...payload,
+      idempotencyKey:
+        request.headers.get("idempotency-key") ?? payload.idempotencyKey,
+    });
+    const notificationResult = await queueBookingNotifications(result.notification);
 
     return NextResponse.json(
       {
@@ -96,6 +139,12 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
+    const validationResponse = jsonError(error, "Unable to create booking.");
+
+    if (validationResponse.status !== 500) {
+      return validationResponse;
+    }
+
     if (error instanceof BookingValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -115,22 +164,40 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Sign in to cancel a booking." }, { status: 401 });
   }
 
-  let payload: unknown;
-
   try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Send cancellation details as JSON." }, { status: 400 });
+    assertSameOrigin(request);
+    await assertRateLimit({
+      key: `bookings:delete:${userId}:${getRateLimitIdentity(request)}`,
+      limit: 20,
+      windowSeconds: 60,
+    });
+  } catch (error) {
+    const rateLimitResponse = rateLimitErrorResponse(error);
+
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
+    const securityResponse = jsonError(error, "Unable to protect cancellation endpoint.");
+
+    if (securityResponse.status !== 500) {
+      return securityResponse;
+    }
+
+    return NextResponse.json({ error: "Unable to protect cancellation endpoint." }, { status: 503 });
   }
 
   try {
-    const bookingId =
-      payload && typeof payload === "object" && "bookingId" in payload
-        ? (payload as { bookingId?: unknown }).bookingId
-        : undefined;
+    const payload = await parseJsonBody(request, cancelBookingSchema);
 
-    return NextResponse.json(await cancelUserBooking(userId, bookingId));
+    return NextResponse.json(await cancelUserBooking(userId, payload.bookingId));
   } catch (error) {
+    const validationResponse = jsonError(error, "Unable to cancel booking.");
+
+    if (validationResponse.status !== 500) {
+      return validationResponse;
+    }
+
     if (error instanceof BookingValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

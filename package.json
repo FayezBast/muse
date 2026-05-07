@@ -1,10 +1,18 @@
 {
   "name": "muse-booking",
   "private": true,
+  "engines": {
+    "node": ">=22.12.0 <26"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "node scripts/validate-env.mjs && node scripts/migrate.mjs && next start",
+    "start:next": "next start",
+    "db:migrate": "node scripts/migrate.mjs",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.3.1",
@@ -19,6 +27,14 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.2.4",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3"
+  },
+  "overrides": {
+    "postcss": "^8.5.14"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "vitest": "^4.1.5"
   }
 }

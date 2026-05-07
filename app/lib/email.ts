@@ -1,6 +1,6 @@
 import "server-only";
 
-type BookingEmailDetails = {
+export type BookingEmailDetails = {
   id: string;
   status: "confirmed" | "waitlist";
   sessionLabel: string;

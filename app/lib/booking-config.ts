@@ -108,7 +108,7 @@ export function getTimeSlot(time: string) {
   return TIME_SLOTS.find((slot) => slot.time === time);
 }
 
-function getTimeSlotMinutes(time: string) {
+export function getTimeSlotMinutes(time: string) {
   const match = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
 
   if (!match) {
@@ -129,7 +129,7 @@ function getTimeSlotMinutes(time: string) {
   return normalizedHour * 60 + minute;
 }
 
-function getStudioNowParts(now = new Date()) {
+export function getStudioNowParts(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: STUDIO_TIME_ZONE,
     year: "numeric",
@@ -149,22 +149,121 @@ function getStudioNowParts(now = new Date()) {
   };
 }
 
-export function isTimeSlotPast(dateIso: string, time: string, now = new Date()) {
+export function getStudioTodayIso(now = new Date()) {
+  return getStudioNowParts(now).dateIso;
+}
+
+export function addDaysToIsoDate(dateIso: string, days: number) {
+  const [year, month, day] = dateIso.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return dateIso;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getTimeZoneOffsetMinutes(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+  const zonedAsUtc = Date.UTC(
+    getPart("year"),
+    getPart("month") - 1,
+    getPart("day"),
+    getPart("hour"),
+    getPart("minute"),
+    getPart("second"),
+  );
+
+  return (zonedAsUtc - date.getTime()) / 60_000;
+}
+
+export function getStudioClassStart(dateIso: string, time: string) {
+  const [year, month, day] = dateIso.split("-").map(Number);
   const slotMinutes = getTimeSlotMinutes(time);
 
-  if (!dateIso || slotMinutes === undefined) {
+  if (!year || !month || !day || slotMinutes === undefined) {
+    return undefined;
+  }
+
+  const hour = Math.floor(slotMinutes / 60);
+  const minute = slotMinutes % 60;
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const firstOffset = getTimeZoneOffsetMinutes(
+    new Date(localAsUtc),
+    STUDIO_TIME_ZONE,
+  );
+  const firstGuess = new Date(localAsUtc - firstOffset * 60_000);
+  const secondOffset = getTimeZoneOffsetMinutes(firstGuess, STUDIO_TIME_ZONE);
+
+  return new Date(localAsUtc - secondOffset * 60_000);
+}
+
+export function isWithinCancellationCutoff(
+  dateIso: string,
+  time: string,
+  cutoffMinutes = 240,
+  now = new Date(),
+) {
+  const start = getStudioClassStart(dateIso, time);
+
+  if (!start) {
     return false;
   }
 
-  const studioNow = getStudioNowParts(now);
+  return start.getTime() - now.getTime() < cutoffMinutes * 60_000;
+}
 
-  if (dateIso < studioNow.dateIso) {
-    return true;
+export function formatStudioCalendarDateTime(
+  dateIso: string,
+  time: string,
+  durationMinutes = 50,
+) {
+  const [year, month, day] = dateIso.split("-").map(Number);
+  const slotMinutes = getTimeSlotMinutes(time);
+
+  if (!year || !month || !day || slotMinutes === undefined) {
+    return undefined;
   }
 
-  if (dateIso > studioNow.dateIso) {
+  const start = new Date(
+    Date.UTC(year, month - 1, day, Math.floor(slotMinutes / 60), slotMinutes % 60),
+  );
+  const end = new Date(start);
+  end.setUTCMinutes(start.getUTCMinutes() + durationMinutes);
+  const compact = (date: Date) =>
+    `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(
+      date.getUTCDate(),
+    ).padStart(2, "0")}T${String(date.getUTCHours()).padStart(2, "0")}${String(
+      date.getUTCMinutes(),
+    ).padStart(2, "0")}00`;
+
+  return {
+    start: compact(start),
+    end: compact(end),
+  };
+}
+
+export function isTimeSlotPast(dateIso: string, time: string, now = new Date()) {
+  const start = getStudioClassStart(dateIso, time);
+
+  if (!dateIso || !start) {
     return false;
   }
 
-  return studioNow.minutes >= slotMinutes;
+  return now.getTime() >= start.getTime();
 }

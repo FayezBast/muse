@@ -19,8 +19,8 @@ function AccessDenied() {
           This account is not staff.
         </h1>
         <p className="mt-5 text-sm leading-7 text-[#f6e8e0]/70">
-          Sign in with an email listed in INSTRUCTOR_EMAILS or OWNER_ADMIN_EMAILS to
-          view the daily schedule.
+          Sign in with a Clerk account whose staffRole metadata is set to instructor
+          or owner.
         </p>
         <a
           href="/booking"

@@ -3,7 +3,7 @@ import "server-only";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { DEFAULT_CLASS_TYPES, DEFAULT_PACKAGES, formatPriceLabel } from "./booking-config";
-import { getPool } from "./database";
+import { getPool, isProductionRuntime } from "./database";
 import type { StudioClassType, StudioPackage } from "./booking-config";
 
 export type StudioSettings = {
@@ -35,6 +35,10 @@ async function ensureStudioSettingsSchema() {
   const pool = getPool();
 
   if (!pool) {
+    return;
+  }
+
+  if (isProductionRuntime()) {
     return;
   }
 

@@ -1,11 +1,16 @@
 import "server-only";
 
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import {
+  resolveStaffRoleFromMetadata,
+  type StaffRole,
+} from "./staff-roles";
 
-export type StaffRole = "owner" | "instructor";
+export { resolveStaffRoleFromMetadata, type StaffRole } from "./staff-roles";
 
 export type StaffAccess = {
   email?: string;
+  role: StaffRole | null;
   isOwner: boolean;
   isInstructor: boolean;
   destination: "/admin" | "/instructor" | null;
@@ -21,40 +26,7 @@ export class StaffAuthError extends Error {
   }
 }
 
-function splitEmails(value?: string) {
-  return new Set(
-    (value ?? "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
-function getOwnerEmails() {
-  return splitEmails(
-    [
-      process.env.OWNER_ADMIN_EMAILS,
-      process.env.MUSE_OWNER_EMAILS,
-      process.env.BOOKING_OWNER_EMAIL,
-    ]
-      .filter(Boolean)
-      .join(","),
-  );
-}
-
-function getInstructorEmails() {
-  return splitEmails(
-    [
-      process.env.INSTRUCTOR_EMAILS,
-      process.env.MUSE_INSTRUCTOR_EMAILS,
-      process.env.BOOKING_INSTRUCTOR_EMAIL,
-    ]
-      .filter(Boolean)
-      .join(","),
-  );
-}
-
-async function getCurrentUserEmail() {
+async function getCurrentStaffUser() {
   const { userId } = await auth();
 
   if (!userId) {
@@ -64,27 +36,31 @@ async function getCurrentUserEmail() {
   const client = await clerkClient();
   const user = await client.users.getUser(userId);
 
-  return user.primaryEmailAddress?.emailAddress?.trim().toLowerCase();
+  return {
+    email: user.primaryEmailAddress?.emailAddress?.trim().toLowerCase(),
+    role: resolveStaffRoleFromMetadata(user.publicMetadata, user.privateMetadata),
+  };
 }
 
 export async function getStaffAccess(): Promise<StaffAccess> {
-  const email = await getCurrentUserEmail();
-  const ownerEmails = getOwnerEmails();
-  const instructorEmails = getInstructorEmails();
+  const staffUser = await getCurrentStaffUser();
 
-  if (!email) {
+  if (!staffUser?.email) {
     return {
+      role: null,
       isOwner: false,
       isInstructor: false,
       destination: null,
     };
   }
 
-  const isOwner = ownerEmails.has(email);
-  const isInstructor = instructorEmails.has(email);
+  const role = staffUser.role;
+  const isOwner = role === "owner";
+  const isInstructor = role === "owner" || role === "instructor";
 
   return {
-    email,
+    email: staffUser.email,
+    role,
     isOwner,
     isInstructor,
     destination: isOwner ? "/admin" : isInstructor ? "/instructor" : null,
@@ -98,24 +74,13 @@ export async function requireStaff(role: StaffRole) {
     throw new StaffAuthError("Sign in with a staff account.", 401);
   }
 
-  const ownerEmails = getOwnerEmails();
-  const instructorEmails = getInstructorEmails();
-
   if (role === "owner") {
-    if (ownerEmails.size === 0) {
-      throw new StaffAuthError("Owner admin access is not configured.", 403);
-    }
-
     if (!access.isOwner) {
       throw new StaffAuthError("This account is not allowed to open owner admin.", 403);
     }
   }
 
   if (role === "instructor") {
-    if (ownerEmails.size === 0 && instructorEmails.size === 0) {
-      throw new StaffAuthError("Instructor access is not configured.", 403);
-    }
-
     if (!access.isOwner && !access.isInstructor) {
       throw new StaffAuthError("This account is not allowed to open instructor schedule.", 403);
     }
@@ -123,6 +88,6 @@ export async function requireStaff(role: StaffRole) {
 
   return {
     email: access.email,
-    role: access.isOwner ? "owner" : "instructor",
+    role: access.role ?? "instructor",
   };
 }
