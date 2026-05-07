@@ -11,7 +11,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { Show, SignInButton, useAuth, useUser } from "@clerk/nextjs";
+import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "motion/react";
 import heroImage from "../../assets/hero-pilates.jpg";
 import museWordmark from "../../assets/muse-wordmark.png";
@@ -1089,23 +1089,7 @@ export default function BookingPage() {
             className="flex items-center gap-2 md:hidden"
             style={{ fontFamily: '"Manrope", sans-serif' }}
           >
-            <Show when="signed-in">
-              <button
-                type="button"
-                onClick={openMyBookings}
-                className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.06] px-3 text-xs font-semibold text-[#f6e8e0] transition active:scale-[0.98]"
-              >
-                My bookings
-              </button>
-            </Show>
-            <AuthBookingButton
-              onClick={openBookingForm}
-              authRedirectUrl={buildBookingAuthRedirectUrl()}
-              className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.06] px-4 text-sm font-semibold text-[#f6e8e0] transition active:scale-[0.98]"
-            >
-              Book
-            </AuthBookingButton>
-            <AuthCircle />
+            <AuthCircle onMyBookingsClick={openMyBookings} />
           </div>
 
           <nav
@@ -1122,24 +1106,8 @@ export default function BookingPage() {
             <a className="transition hover:text-[#f6e8e0]" href="#classes">
               Schedule
             </a>
-            <AuthBookingButton
-              onClick={openBookingForm}
-              authRedirectUrl={buildBookingAuthRedirectUrl()}
-              className="rounded-full border border-white/[0.15] px-4 py-2 text-[#f6e8e0] transition hover:border-white/[0.25] hover:bg-white/[0.08]"
-            >
-              Book
-            </AuthBookingButton>
-            <Show when="signed-in">
-              <button
-                type="button"
-                onClick={openMyBookings}
-                className="rounded-full border border-white/[0.15] px-4 py-2 text-[#f6e8e0] transition hover:border-white/[0.25] hover:bg-white/[0.08]"
-              >
-                My bookings
-              </button>
-            </Show>
             <span className="h-5 w-px bg-white/[0.12]" />
-            <AuthCircle />
+            <AuthCircle onMyBookingsClick={openMyBookings} />
           </nav>
         </div>
       </header>
@@ -1683,6 +1651,12 @@ export default function BookingPage() {
           </div>
         </motion.section>
       </div>
+
+      <footer className="relative z-10 border-t border-white/10 px-4 py-8 text-center text-xs font-semibold uppercase tracking-[0.2em] text-[#f6e8e0]/60 sm:px-6">
+        <p style={{ fontFamily: '"Manrope", sans-serif' }}>
+          MUSE™ © 2026. All rights reserved.
+        </p>
+      </footer>
 
       <AnimatePresence>
         {isModalOpen ? (

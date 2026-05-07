@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
 
+type AuthCircleProps = {
+  onMyBookingsClick?: () => void;
+};
+
 function GenericAccountIcon() {
   return (
     <>
@@ -24,7 +28,7 @@ function getInitials(name?: string | null, email?: string) {
   return initials || "U";
 }
 
-export default function AuthCircle() {
+export default function AuthCircle({ onMyBookingsClick }: AuthCircleProps) {
   const { isLoaded, isSignedIn, signOut } = useAuth();
   const { user } = useUser();
   const [isOpen, setIsOpen] = useState(false);
@@ -103,6 +107,18 @@ export default function AuthCircle() {
         <div className="absolute right-0 top-12 z-50 min-w-[13rem] overflow-hidden rounded-[18px] border border-white/10 bg-[#160710] p-2 text-sm text-[#f6e8e0] shadow-[0_20px_50px_rgba(0,0,0,0.42)]">
           {email ? (
             <p className="truncate px-3 py-2 text-xs text-[#f6e8e0]/60">{email}</p>
+          ) : null}
+          {onMyBookingsClick ? (
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                onMyBookingsClick();
+              }}
+              className="flex w-full items-center rounded-[12px] px-3 py-2 text-left text-sm font-semibold text-[#f6e8e0] transition hover:bg-white/[0.08]"
+            >
+              My bookings
+            </button>
           ) : null}
           <button
             type="button"
