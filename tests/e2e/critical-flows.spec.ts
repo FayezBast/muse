@@ -17,6 +17,16 @@ test("admin route requires authentication", async ({ page }) => {
   await expect(page).toHaveURL(/sign-in/);
 });
 
+test("auth routes render account entry pages", async ({ page }) => {
+  await page.goto("/sign-in");
+  await expect(page.getByRole("heading", { name: /Sign in/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Booking", exact: true })).toBeVisible();
+
+  await page.goto("/sign-up");
+  await expect(page.getByRole("heading", { name: /Create your account/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Booking", exact: true })).toBeVisible();
+});
+
 test("booking API rejects cross-origin mutation before auth", async ({ request }) => {
   const response = await request.post("/api/bookings", {
     headers: {
