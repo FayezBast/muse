@@ -11,6 +11,7 @@ import {
 } from "./booking-config";
 import { getPool, isProductionRuntime } from "./database";
 import type {
+  ClassTypeId,
   StudioClassType,
   StudioPackage,
   StudioTimeSlot,
@@ -34,7 +35,10 @@ declare global {
 function defaultSettings(): StudioSettings {
   return {
     classTypes: DEFAULT_CLASS_TYPES.map((classType) => ({ ...classType })),
-    timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })),
+    timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({
+      ...slot,
+      classTypeIds: [...slot.classTypeIds],
+    })),
     packages: DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
       points: [...pkg.points],
@@ -132,6 +136,17 @@ function cleanTime(value: unknown, fallback: string) {
   return `${hour12}:${inputMatch[2]} ${period}`;
 }
 
+function cleanClassTypeIds(value: unknown, fallback: readonly ClassTypeId[]) {
+  const allowedIds = new Set(DEFAULT_CLASS_TYPES.map((classType) => classType.id));
+  const cleanIds = getArray(value).filter(
+    (item): item is ClassTypeId =>
+      typeof item === "string" && allowedIds.has(item as ClassTypeId),
+  );
+  const uniqueIds = Array.from(new Set(cleanIds));
+
+  return uniqueIds.length > 0 ? uniqueIds : [...fallback];
+}
+
 function getRecord(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -163,7 +178,10 @@ function normalizeTimeSlots(value: unknown): StudioTimeSlot[] {
   const source =
     rawTimeSlots.length > 0
       ? rawTimeSlots
-      : DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot }));
+      : DEFAULT_TIME_SLOTS.map((slot) => ({
+          ...slot,
+          classTypeIds: [...slot.classTypeIds],
+        }));
   const seenTimes = new Set<string>();
   const slots: StudioTimeSlot[] = [];
 
@@ -181,10 +199,16 @@ function normalizeTimeSlots(value: unknown): StudioTimeSlot[] {
       title: cleanText(rawSlot.title, fallbackSlot.title, 100),
       subtitle: cleanText(rawSlot.subtitle, fallbackSlot.subtitle, 180),
       duration: cleanText(rawSlot.duration, fallbackSlot.duration, 40),
+      classTypeIds: cleanClassTypeIds(rawSlot.classTypeIds, fallbackSlot.classTypeIds),
     });
   }
 
-  return (slots.length > 0 ? slots : DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })))
+  return (slots.length > 0
+    ? slots
+    : DEFAULT_TIME_SLOTS.map((slot) => ({
+        ...slot,
+        classTypeIds: [...slot.classTypeIds],
+      })))
     .toSorted(
       (first, second) =>
         getTimeSlotSortValue(first.time) - getTimeSlotSortValue(second.time),

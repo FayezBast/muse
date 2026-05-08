@@ -23,6 +23,7 @@ export type StudioTimeSlot = {
   title: string;
   subtitle: string;
   duration: string;
+  classTypeIds: readonly ClassTypeId[];
 };
 
 export const DEFAULT_CLASS_TYPES = [
@@ -74,12 +75,14 @@ export const DEFAULT_TIME_SLOTS = [
     title: "Morning Class Slot",
     subtitle: "Choose Reformer or Mat Pilates when booking.",
     duration: "50 min",
+    classTypeIds: ["reformer", "mat-pilates"],
   },
   {
     time: "6:00 PM",
     title: "Evening Class Slot",
     subtitle: "Choose Reformer or Mat Pilates when booking.",
     duration: "50 min",
+    classTypeIds: ["reformer", "mat-pilates"],
   },
 ] as const satisfies readonly StudioTimeSlot[];
 
@@ -94,6 +97,44 @@ export const MAX_GUESTS_PER_TIME = DEFAULT_CLASS_TYPES.reduce(
 
 export function getMaxGuestsPerTime(classTypes: readonly StudioClassType[]) {
   return classTypes.reduce((total, classType) => total + classType.capacity, 0);
+}
+
+export function getTotalCapacityForTimeSlots(
+  timeSlots: readonly StudioTimeSlot[],
+  classTypes: readonly StudioClassType[] = DEFAULT_CLASS_TYPES,
+) {
+  return timeSlots.reduce(
+    (total, slot) =>
+      total +
+      getTimeSlotClassTypes(slot, classTypes).reduce(
+        (slotTotal, classType) => slotTotal + classType.capacity,
+        0,
+      ),
+    0,
+  );
+}
+
+export function getTimeSlotClassTypes(
+  slot: StudioTimeSlot,
+  classTypes: readonly StudioClassType[] = DEFAULT_CLASS_TYPES,
+) {
+  const configuredIds =
+    slot.classTypeIds.length > 0
+      ? slot.classTypeIds
+      : classTypes.map((classType) => classType.id);
+  const configuredIdSet = new Set(configuredIds);
+  const filteredClassTypes = classTypes.filter((classType) =>
+    configuredIdSet.has(classType.id),
+  );
+
+  return filteredClassTypes.length > 0 ? filteredClassTypes : [...classTypes];
+}
+
+export function isClassTypeAvailableForSlot(
+  slot: StudioTimeSlot,
+  classTypeId: ClassTypeId,
+) {
+  return getTimeSlotClassTypes(slot).some((classType) => classType.id === classTypeId);
 }
 
 export function formatPriceLabel(priceCents: number) {

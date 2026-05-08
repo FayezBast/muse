@@ -46,6 +46,7 @@ const settingsTimeSlotSchema = z.object({
   title: z.string().trim().min(1).max(100),
   subtitle: z.string().trim().min(1).max(180),
   duration: z.string().trim().min(1).max(40),
+  classTypeIds: z.array(z.enum(["reformer", "mat-pilates"])).min(1).max(2).optional(),
 });
 
 const settingsPackageSchema = z.object({

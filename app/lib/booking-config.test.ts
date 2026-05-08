@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   formatStudioCalendarDateTime,
+  getTimeSlotClassTypes,
   getStudioTodayIso,
+  getTotalCapacityForTimeSlots,
   isTimeSlotPast,
   isWithinCancellationCutoff,
 } from "./booking-config";
@@ -46,5 +48,38 @@ describe("studio timezone helpers", () => {
       start: "20260507T103000",
       end: "20260507T112000",
     });
+  });
+
+  it("filters configured class types for a time slot", () => {
+    expect(
+      getTimeSlotClassTypes({
+        time: "8:15 PM",
+        title: "Evening Class Slot",
+        subtitle: "Mat only.",
+        duration: "50 min",
+        classTypeIds: ["mat-pilates"],
+      }).map((classType) => classType.id),
+    ).toEqual(["mat-pilates"]);
+  });
+
+  it("calculates total capacity from the class types enabled per slot", () => {
+    expect(
+      getTotalCapacityForTimeSlots([
+        {
+          time: "10:30 AM",
+          title: "Morning Class Slot",
+          subtitle: "Reformer only.",
+          duration: "50 min",
+          classTypeIds: ["reformer"],
+        },
+        {
+          time: "6:00 PM",
+          title: "Evening Class Slot",
+          subtitle: "Mat only.",
+          duration: "50 min",
+          classTypeIds: ["mat-pilates"],
+        },
+      ]),
+    ).toBe(10);
   });
 });

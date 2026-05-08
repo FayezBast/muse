@@ -9,7 +9,10 @@ import {
   formatPriceLabel,
   getClassType,
   getTimeSlot,
+  getTimeSlotClassTypes,
   getTimeSlotSortValue,
+  getTotalCapacityForTimeSlots,
+  isClassTypeAvailableForSlot,
   isWithinCancellationCutoff,
   isTimeSlotPast,
   type StudioClassType,
@@ -247,7 +250,7 @@ function buildDefaultAvailability(
       date,
       slots: timeSlots.map((slot) => ({
         time: slot.time,
-        classes: classTypes.map((classType) => ({
+        classes: getTimeSlotClassTypes(slot, classTypes).map((classType) => ({
           id: classType.id,
           label: classType.label,
           capacity: classType.capacity,
@@ -522,6 +525,12 @@ function normalizeBookingInput(
 
   if (!timeSlot) {
     throw new BookingValidationError("Choose a valid class time.");
+  }
+
+  if (!isClassTypeAvailableForSlot(timeSlot, classType.id)) {
+    throw new BookingValidationError(
+      "Choose an available class type for this time.",
+    );
   }
 
   if (isTimeSlotPast(date, timeSlot.time)) {
@@ -1327,8 +1336,28 @@ function getScheduleTimeSlots(
       title: "Previously Scheduled Class Slot",
       subtitle: "This time has existing bookings but is no longer listed for new bookings.",
       duration: "50 min",
+      classTypeIds: [],
     })),
   ];
+}
+
+function getScheduleClassTypesForSlot(
+  slot: StudioTimeSlot,
+  activeBookings: readonly StoredBooking[],
+  classTypes: readonly StudioClassType[],
+) {
+  const configuredIds = new Set(
+    getTimeSlotClassTypes(slot, classTypes).map((classType) => classType.id),
+  );
+  const bookedIds = new Set(
+    activeBookings
+      .filter((booking) => booking.classTime === slot.time)
+      .map((booking) => booking.session),
+  );
+
+  return classTypes.filter(
+    (classType) => configuredIds.has(classType.id) || bookedIds.has(classType.id),
+  );
 }
 
 function buildStaffBookingDetail(
@@ -1364,7 +1393,11 @@ function buildScheduleForDate(
     .filter((booking) => booking.classDate === date);
   const scheduleTimeSlots = getScheduleTimeSlots(activeBookings, settings.timeSlots);
   const slots: StaffScheduleSlot[] = scheduleTimeSlots.map((slot) => {
-    const classes = settings.classTypes.map((classType) => {
+    const classes = getScheduleClassTypesForSlot(
+      slot,
+      activeBookings,
+      settings.classTypes,
+    ).map((classType) => {
       const classBookings = activeBookings
         .filter(
           (booking) =>
@@ -1411,8 +1444,10 @@ function buildScheduleForDate(
       classes,
     };
   });
-  const totalCapacity = slots.length * settings.classTypes.reduce(
-    (total, classType) => total + classType.capacity,
+  const totalCapacity = slots.reduce(
+    (total, slot) =>
+      total +
+      slot.classes.reduce((slotTotal, classType) => slotTotal + classType.capacity, 0),
     0,
   );
   const confirmed = activeBookings.filter(
@@ -1633,9 +1668,9 @@ async function getOwnerDashboardFromDatabase(
   const classStatsBySession = new Map(
     classStatsResult.rows.map((row) => [row.session, row]),
   );
-  const todayCapacity = settings.timeSlots.length * settings.classTypes.reduce(
-    (total, classType) => total + classType.capacity,
-    0,
+  const todayCapacity = getTotalCapacityForTimeSlots(
+    settings.timeSlots,
+    settings.classTypes,
   );
   const recentBookings = recentResult.rows.map((row) =>
     buildStaffBookingDetail({
@@ -1736,9 +1771,9 @@ export async function getOwnerDashboard(
       revenueLabel: formatPriceLabel(revenueCents),
     };
   });
-  const todayCapacity = settings.timeSlots.length * settings.classTypes.reduce(
-    (total, classType) => total + classType.capacity,
-    0,
+  const todayCapacity = getTotalCapacityForTimeSlots(
+    settings.timeSlots,
+    settings.classTypes,
   );
 
   return {

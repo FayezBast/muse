@@ -8,6 +8,7 @@ import {
   DEFAULT_PACKAGES,
   DEFAULT_TIME_SLOTS,
   getStudioTodayIso,
+  type ClassTypeId,
   type StudioClassType,
   type StudioPackage,
   type StudioTimeSlot,
@@ -107,7 +108,10 @@ const panelClassName =
 function createDefaultSettings(): StudioSettings {
   return {
     classTypes: CLASS_TYPES.map((classType) => ({ ...classType })),
-    timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })),
+    timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({
+      ...slot,
+      classTypeIds: [...slot.classTypeIds],
+    })),
     packages: DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
       points: [...pkg.points],
@@ -181,6 +185,7 @@ function createNewTimeSlot(existingSlots: readonly StudioTimeSlot[]): StudioTime
     title: "Class Slot",
     subtitle: "Choose Reformer or Mat Pilates when booking.",
     duration: "50 min",
+    classTypeIds: CLASS_TYPES.map((classType) => classType.id),
   };
 }
 
@@ -330,6 +335,38 @@ export default function AdminPage() {
           ...slot,
           [key]:
             key === "time" ? displayTimeFromInput(value, slot.time) : value,
+        };
+      }),
+    }));
+  }
+
+  function toggleTimeSlotClassType(index: number, classTypeId: ClassTypeId) {
+    setDraftSettings((current) => ({
+      ...current,
+      timeSlots: current.timeSlots.map((slot, itemIndex) => {
+        if (itemIndex !== index) {
+          return slot;
+        }
+
+        const currentIds =
+          slot.classTypeIds.length > 0
+            ? slot.classTypeIds
+            : current.classTypes.map((classType) => classType.id);
+        const nextIds = currentIds.includes(classTypeId)
+          ? currentIds.filter((id) => id !== classTypeId)
+          : [...currentIds, classTypeId];
+
+        if (nextIds.length === 0) {
+          return slot;
+        }
+
+        const sortedIds = current.classTypes
+          .map((classType) => classType.id)
+          .filter((id) => nextIds.includes(id));
+
+        return {
+          ...slot,
+          classTypeIds: sortedIds,
         };
       }),
     }));
@@ -788,64 +825,96 @@ export default function AdminPage() {
               </div>
 
               <div className="mt-4 space-y-4">
-                {draftSettings.timeSlots.map((slot, index) => (
-                  <article
-                    key={`${slot.time}-${index}`}
-                    className="rounded-[18px] border border-white/10 bg-white/[0.035] p-4"
-                  >
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <label className="block text-sm text-[#f6e8e0]/65">
-                        Time
-                        <input
-                          type="time"
-                          value={timeInputValue(slot.time)}
-                          onChange={(event) =>
-                            updateTimeSlot(index, "time", event.target.value)
-                          }
-                          className={inputClassName}
-                        />
-                      </label>
-                      <label className="block text-sm text-[#f6e8e0]/65">
-                        Duration
-                        <input
-                          value={slot.duration}
-                          onChange={(event) =>
-                            updateTimeSlot(index, "duration", event.target.value)
-                          }
-                          className={inputClassName}
-                        />
-                      </label>
-                    </div>
-                    <label className="mt-4 block text-sm text-[#f6e8e0]/65">
-                      Slot title
-                      <input
-                        value={slot.title}
-                        onChange={(event) =>
-                          updateTimeSlot(index, "title", event.target.value)
-                        }
-                        className={inputClassName}
-                      />
-                    </label>
-                    <label className="mt-4 block text-sm text-[#f6e8e0]/65">
-                      Description
-                      <input
-                        value={slot.subtitle}
-                        onChange={(event) =>
-                          updateTimeSlot(index, "subtitle", event.target.value)
-                        }
-                        className={inputClassName}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => removeTimeSlot(index)}
-                      disabled={draftSettings.timeSlots.length <= 1}
-                      className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-full border border-white/10 bg-black/20 px-4 text-sm font-semibold text-[#f6e8e0]/75 transition hover:border-white/20 hover:text-[#f6e8e0] disabled:cursor-not-allowed disabled:opacity-45"
+                {draftSettings.timeSlots.map((slot, index) => {
+                  const selectedClassTypeIds =
+                    slot.classTypeIds.length > 0
+                      ? slot.classTypeIds
+                      : draftSettings.classTypes.map((classType) => classType.id);
+
+                  return (
+                    <article
+                      key={`${slot.time}-${index}`}
+                      className="rounded-[18px] border border-white/10 bg-white/[0.035] p-4"
                     >
-                      Remove
-                    </button>
-                  </article>
-                ))}
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="block text-sm text-[#f6e8e0]/65">
+                          Time
+                          <input
+                            type="time"
+                            value={timeInputValue(slot.time)}
+                            onChange={(event) =>
+                              updateTimeSlot(index, "time", event.target.value)
+                            }
+                            className={inputClassName}
+                          />
+                        </label>
+                        <label className="block text-sm text-[#f6e8e0]/65">
+                          Duration
+                          <input
+                            value={slot.duration}
+                            onChange={(event) =>
+                              updateTimeSlot(index, "duration", event.target.value)
+                            }
+                            className={inputClassName}
+                          />
+                        </label>
+                      </div>
+
+                      <fieldset className="mt-4">
+                        <legend className="text-sm text-[#f6e8e0]/65">
+                          Classes in this time slot
+                        </legend>
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          {draftSettings.classTypes.map((classType) => (
+                            <label
+                              key={`${slot.time}-${classType.id}`}
+                              className="inline-flex min-h-[40px] items-center gap-3 rounded-full border border-white/10 bg-black/20 px-4 text-sm font-semibold text-[#f6e8e0]/75 transition hover:border-white/20 hover:text-[#f6e8e0]"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedClassTypeIds.includes(classType.id)}
+                                onChange={() =>
+                                  toggleTimeSlotClassType(index, classType.id)
+                                }
+                                className="h-4 w-4 accent-[#f1c9bf]"
+                              />
+                              {classType.label}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+
+                      <label className="mt-4 block text-sm text-[#f6e8e0]/65">
+                        Slot title
+                        <input
+                          value={slot.title}
+                          onChange={(event) =>
+                            updateTimeSlot(index, "title", event.target.value)
+                          }
+                          className={inputClassName}
+                        />
+                      </label>
+                      <label className="mt-4 block text-sm text-[#f6e8e0]/65">
+                        Description
+                        <input
+                          value={slot.subtitle}
+                          onChange={(event) =>
+                            updateTimeSlot(index, "subtitle", event.target.value)
+                          }
+                          className={inputClassName}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeTimeSlot(index)}
+                        disabled={draftSettings.timeSlots.length <= 1}
+                        className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-full border border-white/10 bg-black/20 px-4 text-sm font-semibold text-[#f6e8e0]/75 transition hover:border-white/20 hover:text-[#f6e8e0] disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Remove
+                      </button>
+                    </article>
+                  );
+                })}
               </div>
             </section>
 

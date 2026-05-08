@@ -26,6 +26,7 @@ import {
   getClassType,
   getMaxGuestsPerTime,
   getStudioTodayIso,
+  getTimeSlotClassTypes,
   isTimeSlotPast,
   type ClassTypeId,
   type StudioClassType,
@@ -38,6 +39,7 @@ type ClassSlot = {
   title: string;
   subtitle: string;
   duration: string;
+  classTypeIds: readonly ClassTypeId[];
 };
 
 type DaySchedule = {
@@ -164,7 +166,15 @@ function createDailySchedule(
   timeSlots: readonly StudioTimeSlot[] = DEFAULT_TIME_SLOTS,
   classTypes: readonly StudioClassType[] = CLASS_TYPES,
 ): DaySchedule {
-  const timeSummary = formatInlineList(timeSlots.map((slot) => slot.time));
+  const timeSummary = formatInlineList(
+    timeSlots.map((slot) => {
+      const classSummary = formatInlineList(
+        getTimeSlotClassTypes(slot, classTypes).map((classType) => classType.label),
+      );
+
+      return classSummary ? `${slot.time} (${classSummary})` : slot.time;
+    }),
+  );
   const capacitySummary = formatInlineList(
     classTypes.map(
       (classType) =>
@@ -181,8 +191,27 @@ function createDailySchedule(
       title: slot.title,
       subtitle: slot.subtitle,
       duration: slot.duration,
+      classTypeIds: [...slot.classTypeIds],
     })),
   };
+}
+
+function getMaxGuestsForTimeSlots(
+  timeSlots: readonly StudioTimeSlot[],
+  classTypes: readonly StudioClassType[],
+) {
+  if (timeSlots.length === 0) {
+    return getMaxGuestsPerTime(classTypes);
+  }
+
+  return Math.max(
+    ...timeSlots.map((slot) =>
+      getTimeSlotClassTypes(slot, classTypes).reduce(
+        (total, classType) => total + classType.capacity,
+        0,
+      ),
+    ),
+  );
 }
 
 function createEmptyForm(date = ""): BookingFormState {
@@ -373,7 +402,10 @@ export default function BookingPage() {
     CLASS_TYPES.map((classType) => ({ ...classType })),
   );
   const [timeSlots, setTimeSlots] = useState<StudioTimeSlot[]>(() =>
-    DEFAULT_TIME_SLOTS.map((slot) => ({ ...slot })),
+    DEFAULT_TIME_SLOTS.map((slot) => ({
+      ...slot,
+      classTypeIds: [...slot.classTypeIds],
+    })),
   );
   const [studioPackages, setStudioPackages] = useState<StudioPackage[]>(() =>
     DEFAULT_PACKAGES.map((pkg) => ({
@@ -404,12 +436,17 @@ export default function BookingPage() {
     () => createDailySchedule(timeSlots, classTypes),
     [classTypes, timeSlots],
   );
-  const selectedClassType = form.session
-    ? getClassType(form.session, classTypes)
-    : undefined;
-  const maxGuestsPerTime = getMaxGuestsPerTime(classTypes);
+  const classTypesForSelectedTime = form.time
+    ? getClassTypesForTime(form.time)
+    : classTypes;
+  const selectedClassType =
+    form.session &&
+    classTypesForSelectedTime.some((classType) => classType.id === form.session)
+      ? getClassType(form.session, classTypes)
+      : undefined;
+  const maxGuestsPerTime = getMaxGuestsForTimeSlots(timeSlots, classTypes);
   const selectedAvailability =
-    form.date && form.time && form.session
+    form.date && form.time && form.session && selectedClassType
       ? availabilityByKey[buildAvailabilityKey(form.date, form.time, form.session)] ??
         createDefaultClassAvailability(form.session, classTypes)
       : undefined;
@@ -438,8 +475,11 @@ export default function BookingPage() {
             ? "This class is full, so your request will join the waitlist."
             : `${selectedAvailability.spotsLeft} of ${selectedAvailability.capacity} spots are left.`
         }`
-      : `${form.time} is selected. Choose Reformer or Mat Pilates to see price and spots.`
-    : "Select a time slot above to prefill the form, then choose Reformer or Mat Pilates here.";
+      : `${form.time} is selected. Choose ${
+          formatInlineList(classTypesForSelectedTime.map((classType) => classType.label)) ||
+          "a class type"
+        } to see price and spots.`
+    : "Select a time slot above to prefill the form, then choose an available class type here.";
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
   const userFullName =
     user?.fullName ||
@@ -452,8 +492,16 @@ export default function BookingPage() {
     );
   }
 
+  function getClassTypesForTime(time: string) {
+    const slot = timeSlots.find((timeSlot) => timeSlot.time === time);
+
+    return slot ? getTimeSlotClassTypes(slot, classTypes) : classTypes;
+  }
+
   function getSlotAvailability(slot: ClassSlot, date = activeDateIso) {
-    return classTypes.map((classType) => getAvailabilityFor(date, slot.time, classType.id));
+    return getTimeSlotClassTypes(slot, classTypes).map((classType) =>
+      getAvailabilityFor(date, slot.time, classType.id),
+    );
   }
 
   function isSlotUnavailable(slot: ClassSlot, date = activeDateIso) {
@@ -697,11 +745,18 @@ export default function BookingPage() {
       ? requestedDate
       : activeDateIso || getStudioTodayIso(clock);
     const requestedTime = params.get("time") ?? "";
-    const nextTime = timeSlots.some((slot) => slot.time === requestedTime)
-      ? requestedTime
-      : "";
+    const requestedSlot = timeSlots.find((slot) => slot.time === requestedTime);
+    const nextTime = requestedSlot ? requestedTime : "";
     const requestedSession = params.get("session") ?? "";
-    const nextSession = getClassType(requestedSession, classTypes)?.id ?? "";
+    const requestedClassTypeId = getClassType(requestedSession, classTypes)?.id;
+    const nextSession =
+      requestedSlot &&
+      requestedClassTypeId &&
+      getTimeSlotClassTypes(requestedSlot, classTypes).some(
+        (classType) => classType.id === requestedClassTypeId,
+      )
+        ? requestedClassTypeId
+        : "";
 
     if (nextTime && isTimeSlotPast(nextDate, nextTime, clock)) {
       setStatusMessage("This class time is no longer available.");
@@ -863,7 +918,12 @@ export default function BookingPage() {
   }
 
   function prefillBookingForm(slot: ClassSlot) {
-    prefillBookingFormForClass(slot);
+    const slotClassTypes = getTimeSlotClassTypes(slot, classTypes);
+
+    prefillBookingFormForClass(
+      slot,
+      slotClassTypes.length === 1 ? slotClassTypes[0]?.id : undefined,
+    );
   }
 
   function prefillBookingFormForClass(slot: ClassSlot, classTypeId?: ClassTypeId) {
@@ -872,9 +932,18 @@ export default function BookingPage() {
     }
 
     const nextDate = activeDate ? formatIsoDate(activeDate) : getStudioTodayIso(clock);
+    const slotClassTypes = getTimeSlotClassTypes(slot, classTypes);
 
     if (isTimeSlotPast(nextDate, slot.time, clock)) {
       setStatusMessage("This class time is no longer available.");
+      return;
+    }
+
+    if (
+      classTypeId &&
+      !slotClassTypes.some((classType) => classType.id === classTypeId)
+    ) {
+      setStatusMessage("Choose an available class type for this time.");
       return;
     }
 
@@ -916,6 +985,16 @@ export default function BookingPage() {
           return nextForm;
         }
 
+        if (nextForm.time && nextForm.session) {
+          const isSessionAvailableForTime = getClassTypesForTime(nextForm.time).some(
+            (classType) => classType.id === nextForm.session,
+          );
+
+          if (!isSessionAvailableForTime) {
+            nextForm.session = "";
+          }
+        }
+
         nextForm.requestType = getRequestType(
           nextForm.date,
           nextForm.time,
@@ -939,6 +1018,14 @@ export default function BookingPage() {
 
     if (isTimeSlotPast(form.date, form.time, new Date())) {
       setStatusMessage("This class time is no longer available.");
+      return;
+    }
+
+    if (
+      form.session &&
+      !getClassTypesForTime(form.time).some((classType) => classType.id === form.session)
+    ) {
+      setStatusMessage("Choose an available class type for this time.");
       return;
     }
 
@@ -1500,7 +1587,7 @@ export default function BookingPage() {
                 {[
                   { value: String(maxGuestsPerTime), label: "Per time" },
                   { value: "4h", label: "Cancel window" },
-                  { value: "2x", label: "Daily slots" },
+                  { value: `${timeSlots.length}x`, label: "Daily slots" },
                 ].map((item) => (
                   <motion.div
                     key={item.label}
@@ -1735,7 +1822,7 @@ export default function BookingPage() {
                       style={{ fontFamily: '"Manrope", sans-serif' }}
                     >
                       Pick a time slot from the schedule or choose it manually here. Then
-                      select Reformer or Mat Pilates and submit the booking request.
+                      select an available class type and submit the booking request.
                     </p>
                     <p
                       className="mt-4 rounded-[20px] border border-white/10 bg-white/5 p-4 text-sm leading-6 text-[#f6e8e0]/[0.72] sm:mt-5 sm:rounded-[22px] sm:leading-7"
@@ -1830,7 +1917,7 @@ export default function BookingPage() {
                           className={fieldClassName}
                         >
                           <option value="">Choose a class type</option>
-                          {classTypes.map((classType) => (
+                          {classTypesForSelectedTime.map((classType) => (
                             <option key={classType.id} value={classType.id}>
                               {classType.label} · {classType.priceLabel}
                             </option>

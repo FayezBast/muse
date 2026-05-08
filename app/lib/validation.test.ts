@@ -57,6 +57,7 @@ describe("API validation schemas", () => {
           title: "Evening Class Slot",
           subtitle: "Choose Reformer or Mat Pilates when booking.",
           duration: "50 min",
+          classTypeIds: ["mat-pilates"],
         },
       ],
       packages: [
@@ -71,6 +72,40 @@ describe("API validation schemas", () => {
     });
 
     expect(parsed.timeSlots[0]?.time).toBe("8:15 PM");
+    expect(parsed.timeSlots[0]?.classTypeIds).toEqual(["mat-pilates"]);
+  });
+
+  it("requires at least one class type per owner-editable time slot", () => {
+    expect(() =>
+      studioSettingsSchema.parse({
+        classTypes: [
+          {
+            id: "reformer",
+            label: "Reformer",
+            capacity: 4,
+            priceCents: 3500,
+          },
+        ],
+        timeSlots: [
+          {
+            time: "8:15 PM",
+            title: "Evening Class Slot",
+            subtitle: "Choose a class.",
+            duration: "50 min",
+            classTypeIds: [],
+          },
+        ],
+        packages: [
+          {
+            id: "four-class-pack",
+            kicker: "Package One",
+            title: "4 Classes",
+            bonus: "5th class free",
+            points: ["Pay for 4 classes and receive 1 extra class free."],
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("bounds owner-editable studio settings", () => {
