@@ -7,11 +7,16 @@ import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,
   DEFAULT_TIME_SLOTS,
+  DEFAULT_WEEKLY_SCHEDULE,
+  WEEKDAYS,
   getStudioTodayIso,
+  getWeekdayIdForIsoDate,
   type ClassTypeId,
   type StudioClassType,
   type StudioPackage,
   type StudioTimeSlot,
+  type StudioWeeklyScheduleDay,
+  type WeekdayId,
 } from "../lib/booking-config";
 
 type StaffBookingDetail = {
@@ -55,6 +60,7 @@ type StaffScheduleSlot = {
 type StudioSettings = {
   classTypes: StudioClassType[];
   timeSlots: StudioTimeSlot[];
+  weeklySchedule: StudioWeeklyScheduleDay[];
   packages: StudioPackage[];
   updatedAt: string;
 };
@@ -111,6 +117,13 @@ function createDefaultSettings(): StudioSettings {
     timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({
       ...slot,
       classTypeIds: [...slot.classTypeIds],
+    })),
+    weeklySchedule: DEFAULT_WEEKLY_SCHEDULE.map((day) => ({
+      ...day,
+      timeSlots: day.timeSlots.map((slot) => ({
+        ...slot,
+        classTypeIds: [...slot.classTypeIds],
+      })),
     })),
     packages: DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
@@ -189,6 +202,10 @@ function createNewTimeSlot(existingSlots: readonly StudioTimeSlot[]): StudioTime
   };
 }
 
+function getLegacyTimeSlots(weeklySchedule: readonly StudioWeeklyScheduleDay[]) {
+  return weeklySchedule.find((day) => day.timeSlots.length > 0)?.timeSlots ?? [];
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
 
@@ -207,6 +224,9 @@ function formatDateTime(value: string) {
 export default function AdminPage() {
   const { isLoaded, isSignedIn } = useAuth();
   const [selectedDate, setSelectedDate] = useState(() => getStudioTodayIso());
+  const [selectedScheduleDay, setSelectedScheduleDay] = useState<WeekdayId>(() =>
+    getWeekdayIdForIsoDate(getStudioTodayIso()),
+  );
   const [dashboard, setDashboard] = useState<OwnerDashboardResponse | null>(null);
   const [draftSettings, setDraftSettings] = useState<StudioSettings>(() =>
     createDefaultSettings(),
@@ -227,6 +247,10 @@ export default function AdminPage() {
       100,
     );
   }, [dashboard]);
+  const selectedDaySchedule =
+    draftSettings.weeklySchedule.find((day) => day.day === selectedScheduleDay) ??
+    draftSettings.weeklySchedule[0];
+  const selectedDaySlots = selectedDaySchedule?.timeSlots ?? [];
 
   async function loadDashboard(date = selectedDate, signal?: AbortSignal) {
     if (!isSignedIn) {
@@ -319,83 +343,112 @@ export default function AdminPage() {
     }));
   }
 
-  function updateTimeSlot(
+  function updateScheduleTimeSlot(
     index: number,
     key: "time" | "title" | "subtitle" | "duration",
     value: string,
   ) {
     setDraftSettings((current) => ({
       ...current,
-      timeSlots: current.timeSlots.map((slot, itemIndex) => {
-        if (itemIndex !== index) {
-          return slot;
-        }
+      weeklySchedule: current.weeklySchedule.map((day) => ({
+        ...day,
+        timeSlots:
+          day.day === selectedScheduleDay
+            ? day.timeSlots.map((slot, itemIndex) => {
+                if (itemIndex !== index) {
+                  return slot;
+                }
 
-        return {
-          ...slot,
-          [key]:
-            key === "time" ? displayTimeFromInput(value, slot.time) : value,
-        };
-      }),
+                return {
+                  ...slot,
+                  [key]:
+                    key === "time" ? displayTimeFromInput(value, slot.time) : value,
+                };
+              })
+            : day.timeSlots,
+      })),
     }));
   }
 
-  function toggleTimeSlotClassType(index: number, classTypeId: ClassTypeId) {
+  function toggleScheduleSlotClassType(index: number, classTypeId: ClassTypeId) {
     setDraftSettings((current) => ({
       ...current,
-      timeSlots: current.timeSlots.map((slot, itemIndex) => {
-        if (itemIndex !== index) {
-          return slot;
-        }
+      weeklySchedule: current.weeklySchedule.map((day) => ({
+        ...day,
+        timeSlots:
+          day.day === selectedScheduleDay
+            ? day.timeSlots.map((slot, itemIndex) => {
+                if (itemIndex !== index) {
+                  return slot;
+                }
 
-        const currentIds =
-          slot.classTypeIds.length > 0
-            ? slot.classTypeIds
-            : current.classTypes.map((classType) => classType.id);
-        const nextIds = currentIds.includes(classTypeId)
-          ? currentIds.filter((id) => id !== classTypeId)
-          : [...currentIds, classTypeId];
+                const currentIds =
+                  slot.classTypeIds.length > 0
+                    ? slot.classTypeIds
+                    : current.classTypes.map((classType) => classType.id);
+                const nextIds = currentIds.includes(classTypeId)
+                  ? currentIds.filter((id) => id !== classTypeId)
+                  : [...currentIds, classTypeId];
 
-        if (nextIds.length === 0) {
-          return slot;
-        }
+                if (nextIds.length === 0) {
+                  return slot;
+                }
 
-        const sortedIds = current.classTypes
-          .map((classType) => classType.id)
-          .filter((id) => nextIds.includes(id));
+                const sortedIds = current.classTypes
+                  .map((classType) => classType.id)
+                  .filter((id) => nextIds.includes(id));
 
-        return {
-          ...slot,
-          classTypeIds: sortedIds,
-        };
-      }),
+                return {
+                  ...slot,
+                  classTypeIds: sortedIds,
+                };
+              })
+            : day.timeSlots,
+      })),
     }));
   }
 
   function addTimeSlot() {
     setDraftSettings((current) => {
-      if (current.timeSlots.length >= 8) {
+      const daySchedule = current.weeklySchedule.find(
+        (day) => day.day === selectedScheduleDay,
+      );
+
+      if (!daySchedule || daySchedule.timeSlots.length >= 8) {
         return current;
       }
 
       return {
         ...current,
-        timeSlots: [...current.timeSlots, createNewTimeSlot(current.timeSlots)],
+        weeklySchedule: current.weeklySchedule.map((day) =>
+          day.day === selectedScheduleDay
+            ? {
+                ...day,
+                timeSlots: [
+                  ...day.timeSlots,
+                  createNewTimeSlot(day.timeSlots),
+                ],
+              }
+            : day,
+        ),
       };
     });
   }
 
   function removeTimeSlot(index: number) {
-    setDraftSettings((current) => {
-      if (current.timeSlots.length <= 1) {
-        return current;
-      }
-
-      return {
-        ...current,
-        timeSlots: current.timeSlots.filter((_, itemIndex) => itemIndex !== index),
-      };
-    });
+    setDraftSettings((current) => ({
+      ...current,
+      weeklySchedule: current.weeklySchedule.map((day) =>
+        day.day === selectedScheduleDay
+          ? {
+              ...day,
+              timeSlots: day.timeSlots.filter(
+                (_, itemIndex) => itemIndex !== index,
+              ),
+            }
+          : day,
+      ),
+    }));
   }
 
   function updatePackage(
@@ -444,12 +497,16 @@ export default function AdminPage() {
     setMessage("");
 
     try {
+      const settingsPayload = {
+        ...draftSettings,
+        timeSlots: getLegacyTimeSlots(draftSettings.weeklySchedule),
+      };
       const response = await fetch("/api/studio-settings", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(draftSettings),
+        body: JSON.stringify(settingsPayload),
       });
       const payload = (await response.json()) as
         | { settings?: StudioSettings; error?: string }
@@ -813,19 +870,54 @@ export default function AdminPage() {
 
             <section className="rounded-[22px] border border-white/10 bg-black/18 p-4 sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-lg font-semibold text-[#f7e8e2]">Class times</h3>
+                <h3 className="text-lg font-semibold text-[#f7e8e2]">
+                  Weekly class schedule
+                </h3>
                 <button
                   type="button"
                   onClick={addTimeSlot}
-                  disabled={draftSettings.timeSlots.length >= 8}
+                  disabled={selectedDaySlots.length >= 8}
                   className="inline-flex min-h-[40px] w-fit items-center justify-center rounded-full border border-white/10 bg-white/[0.055] px-4 text-sm font-semibold text-[#f6e8e0] transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Add time
                 </button>
               </div>
 
+              <div className="mt-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {WEEKDAYS.map((weekday) => {
+                  const isSelected = weekday.id === selectedScheduleDay;
+                  const daySchedule = draftSettings.weeklySchedule.find(
+                    (day) => day.day === weekday.id,
+                  );
+
+                  return (
+                    <button
+                      key={weekday.id}
+                      type="button"
+                      onClick={() => setSelectedScheduleDay(weekday.id)}
+                      className={`min-h-[40px] shrink-0 rounded-full border px-4 text-sm font-semibold transition ${
+                        isSelected
+                          ? "border-transparent bg-[linear-gradient(135deg,#f7e8e2,#dcb5aa)] text-[#2a0711]"
+                          : "border-white/10 bg-black/20 text-[#f6e8e0]/70 hover:border-white/20 hover:text-[#f6e8e0]"
+                      }`}
+                    >
+                      {weekday.label.slice(0, 3)}
+                      <span className="ml-2 text-xs opacity-70">
+                        {daySchedule?.timeSlots.length ?? 0}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="mt-4 space-y-4">
-                {draftSettings.timeSlots.map((slot, index) => {
+                {selectedDaySlots.length === 0 ? (
+                  <p className="rounded-[18px] border border-white/10 bg-white/[0.035] p-4 text-sm text-[#f6e8e0]/60">
+                    No classes scheduled for {selectedDaySchedule?.label ?? "this day"}.
+                  </p>
+                ) : null}
+
+                {selectedDaySlots.map((slot, index) => {
                   const selectedClassTypeIds =
                     slot.classTypeIds.length > 0
                       ? slot.classTypeIds
@@ -843,7 +935,7 @@ export default function AdminPage() {
                             type="time"
                             value={timeInputValue(slot.time)}
                             onChange={(event) =>
-                              updateTimeSlot(index, "time", event.target.value)
+                              updateScheduleTimeSlot(index, "time", event.target.value)
                             }
                             className={inputClassName}
                           />
@@ -853,7 +945,7 @@ export default function AdminPage() {
                           <input
                             value={slot.duration}
                             onChange={(event) =>
-                              updateTimeSlot(index, "duration", event.target.value)
+                              updateScheduleTimeSlot(index, "duration", event.target.value)
                             }
                             className={inputClassName}
                           />
@@ -874,7 +966,7 @@ export default function AdminPage() {
                                 type="checkbox"
                                 checked={selectedClassTypeIds.includes(classType.id)}
                                 onChange={() =>
-                                  toggleTimeSlotClassType(index, classType.id)
+                                  toggleScheduleSlotClassType(index, classType.id)
                                 }
                                 className="h-4 w-4 accent-[#f1c9bf]"
                               />
@@ -889,7 +981,7 @@ export default function AdminPage() {
                         <input
                           value={slot.title}
                           onChange={(event) =>
-                            updateTimeSlot(index, "title", event.target.value)
+                            updateScheduleTimeSlot(index, "title", event.target.value)
                           }
                           className={inputClassName}
                         />
@@ -899,7 +991,7 @@ export default function AdminPage() {
                         <input
                           value={slot.subtitle}
                           onChange={(event) =>
-                            updateTimeSlot(index, "subtitle", event.target.value)
+                            updateScheduleTimeSlot(index, "subtitle", event.target.value)
                           }
                           className={inputClassName}
                         />
@@ -907,7 +999,6 @@ export default function AdminPage() {
                       <button
                         type="button"
                         onClick={() => removeTimeSlot(index)}
-                        disabled={draftSettings.timeSlots.length <= 1}
                         className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-full border border-white/10 bg-black/20 px-4 text-sm font-semibold text-[#f6e8e0]/75 transition hover:border-white/20 hover:text-[#f6e8e0] disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         Remove

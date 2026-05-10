@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatStudioCalendarDateTime,
+  getTimeSlotsForDate,
   getTimeSlotClassTypes,
   getStudioTodayIso,
   getTotalCapacityForTimeSlots,
@@ -81,5 +82,47 @@ describe("studio timezone helpers", () => {
         },
       ]),
     ).toBe(10);
+  });
+
+  it("selects class slots from the repeating weekly schedule", () => {
+    expect(
+      getTimeSlotsForDate(
+        "2026-05-11",
+        [
+          {
+            day: "monday",
+            label: "Monday",
+            timeSlots: [
+              {
+                time: "7:00 PM",
+                title: "Monday Class",
+                subtitle: "Reformer only.",
+                duration: "50 min",
+                classTypeIds: ["reformer"],
+              },
+            ],
+          },
+        ],
+        [],
+      ).map((slot) => slot.time),
+    ).toEqual(["7:00 PM"]);
+
+    expect(
+      getTimeSlotsForDate(
+        "2026-05-12",
+        [{ day: "tuesday", label: "Tuesday", timeSlots: [] }],
+        [
+          {
+            time: "10:30 AM",
+            title: "Fallback",
+            subtitle: "Fallback class.",
+            duration: "50 min",
+            classTypeIds: ["reformer"],
+          },
+        ],
+      ),
+    ).toEqual([]);
+
+    expect(getTimeSlotsForDate("2026-05-12", [], [])).toEqual([]);
   });
 });

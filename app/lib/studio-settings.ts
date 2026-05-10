@@ -6,6 +6,8 @@ import {
   DEFAULT_CLASS_TYPES,
   DEFAULT_PACKAGES,
   DEFAULT_TIME_SLOTS,
+  DEFAULT_WEEKLY_SCHEDULE,
+  WEEKDAYS,
   formatPriceLabel,
   getTimeSlotSortValue,
 } from "./booking-config";
@@ -15,11 +17,13 @@ import type {
   StudioClassType,
   StudioPackage,
   StudioTimeSlot,
+  StudioWeeklyScheduleDay,
 } from "./booking-config";
 
 export type StudioSettings = {
   classTypes: StudioClassType[];
   timeSlots: StudioTimeSlot[];
+  weeklySchedule: StudioWeeklyScheduleDay[];
   packages: StudioPackage[];
   updatedAt: string;
 };
@@ -38,6 +42,13 @@ function defaultSettings(): StudioSettings {
     timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({
       ...slot,
       classTypeIds: [...slot.classTypeIds],
+    })),
+    weeklySchedule: DEFAULT_WEEKLY_SCHEDULE.map((day) => ({
+      ...day,
+      timeSlots: day.timeSlots.map((slot) => ({
+        ...slot,
+        classTypeIds: [...slot.classTypeIds],
+      })),
     })),
     packages: DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
@@ -173,8 +184,16 @@ function normalizeClassTypes(value: unknown): StudioClassType[] {
   });
 }
 
-function normalizeTimeSlots(value: unknown): StudioTimeSlot[] {
+function normalizeTimeSlots(
+  value: unknown,
+  options: { allowEmpty?: boolean } = {},
+): StudioTimeSlot[] {
   const rawTimeSlots = getArray(value).map(getRecord);
+
+  if (options.allowEmpty && rawTimeSlots.length === 0) {
+    return [];
+  }
+
   const source =
     rawTimeSlots.length > 0
       ? rawTimeSlots
@@ -216,6 +235,35 @@ function normalizeTimeSlots(value: unknown): StudioTimeSlot[] {
     .slice(0, 8);
 }
 
+function cloneTimeSlots(timeSlots: readonly StudioTimeSlot[]) {
+  return timeSlots.map((slot) => ({
+    ...slot,
+    classTypeIds: [...slot.classTypeIds],
+  }));
+}
+
+function normalizeWeeklySchedule(
+  value: unknown,
+  fallbackTimeSlots: readonly StudioTimeSlot[],
+): StudioWeeklyScheduleDay[] {
+  const rawDays = getArray(value).map(getRecord);
+
+  return WEEKDAYS.map((weekday) => {
+    const rawDay = rawDays.find((item) => item.day === weekday.id);
+    const hasExplicitTimeSlots =
+      Boolean(rawDay) && Array.isArray(rawDay?.timeSlots);
+    const timeSlots = hasExplicitTimeSlots
+      ? normalizeTimeSlots(rawDay?.timeSlots, { allowEmpty: true })
+      : cloneTimeSlots(fallbackTimeSlots);
+
+    return {
+      day: weekday.id,
+      label: weekday.label,
+      timeSlots,
+    };
+  });
+}
+
 function normalizePackages(value: unknown): StudioPackage[] {
   const rawPackages = getArray(value).map(getRecord);
 
@@ -246,10 +294,19 @@ function normalizePackages(value: unknown): StudioPackage[] {
 
 function normalizeSettings(value: unknown): StudioSettings {
   const rawSettings = getRecord(value);
+  const fallbackTimeSlots = normalizeTimeSlots(rawSettings.timeSlots);
+  const weeklySchedule = normalizeWeeklySchedule(
+    rawSettings.weeklySchedule,
+    fallbackTimeSlots,
+  );
 
   return {
     classTypes: normalizeClassTypes(rawSettings.classTypes),
-    timeSlots: normalizeTimeSlots(rawSettings.timeSlots),
+    timeSlots: cloneTimeSlots(
+      weeklySchedule.find((day) => day.timeSlots.length > 0)?.timeSlots ??
+        fallbackTimeSlots,
+    ),
+    weeklySchedule,
     packages: normalizePackages(rawSettings.packages),
     updatedAt: cleanText(rawSettings.updatedAt, new Date().toISOString(), 80),
   };

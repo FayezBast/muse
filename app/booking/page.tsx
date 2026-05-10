@@ -21,17 +21,20 @@ import {
   CLASS_TYPES,
   DEFAULT_PACKAGES,
   DEFAULT_TIME_SLOTS,
+  DEFAULT_WEEKLY_SCHEDULE,
   addDaysToIsoDate,
   formatStudioCalendarDateTime,
   getClassType,
   getMaxGuestsPerTime,
   getStudioTodayIso,
+  getTimeSlotsForDate,
   getTimeSlotClassTypes,
   isTimeSlotPast,
   type ClassTypeId,
   type StudioClassType,
   type StudioPackage,
   type StudioTimeSlot,
+  type StudioWeeklyScheduleDay,
 } from "../lib/booking-config";
 
 type ClassSlot = {
@@ -101,6 +104,7 @@ type StudioSettingsResponse = {
   settings?: {
     classTypes?: StudioClassType[];
     timeSlots?: StudioTimeSlot[];
+    weeklySchedule?: StudioWeeklyScheduleDay[];
     packages?: StudioPackage[];
   };
   error?: string;
@@ -166,6 +170,13 @@ function createDailySchedule(
   timeSlots: readonly StudioTimeSlot[] = DEFAULT_TIME_SLOTS,
   classTypes: readonly StudioClassType[] = CLASS_TYPES,
 ): DaySchedule {
+  if (timeSlots.length === 0) {
+    return {
+      summary: "No class slots are scheduled for this day.",
+      classes: [],
+    };
+  }
+
   const timeSummary = formatInlineList(
     timeSlots.map((slot) => {
       const classSummary = formatInlineList(
@@ -196,12 +207,22 @@ function createDailySchedule(
   };
 }
 
+function createDefaultWeeklySchedule() {
+  return DEFAULT_WEEKLY_SCHEDULE.map((day) => ({
+    ...day,
+    timeSlots: day.timeSlots.map((slot) => ({
+      ...slot,
+      classTypeIds: [...slot.classTypeIds],
+    })),
+  }));
+}
+
 function getMaxGuestsForTimeSlots(
   timeSlots: readonly StudioTimeSlot[],
   classTypes: readonly StudioClassType[],
 ) {
   if (timeSlots.length === 0) {
-    return getMaxGuestsPerTime(classTypes);
+    return 0;
   }
 
   return Math.max(
@@ -407,6 +428,9 @@ export default function BookingPage() {
       classTypeIds: [...slot.classTypeIds],
     })),
   );
+  const [weeklySchedule, setWeeklySchedule] = useState<StudioWeeklyScheduleDay[]>(
+    createDefaultWeeklySchedule,
+  );
   const [studioPackages, setStudioPackages] = useState<StudioPackage[]>(() =>
     DEFAULT_PACKAGES.map((pkg) => ({
       ...pkg,
@@ -432,32 +456,47 @@ export default function BookingPage() {
 
   const activeDate = dates[selectedDateIndex];
   const activeDateIso = activeDate ? formatIsoDate(activeDate) : "";
+  const activeTimeSlots = useMemo(
+    () => getTimeSlotsForDate(activeDateIso, weeklySchedule, timeSlots),
+    [activeDateIso, timeSlots, weeklySchedule],
+  );
+  const formTimeSlots = form.date
+    ? getTimeSlotsForDate(form.date, weeklySchedule, timeSlots)
+    : activeTimeSlots;
+  const selectedTimeSlot = form.time
+    ? formTimeSlots.find((slot) => slot.time === form.time)
+    : undefined;
   const activeSchedule = useMemo(
-    () => createDailySchedule(timeSlots, classTypes),
-    [classTypes, timeSlots],
+    () => createDailySchedule(activeTimeSlots, classTypes),
+    [activeTimeSlots, classTypes],
   );
   const classTypesForSelectedTime = form.time
-    ? getClassTypesForTime(form.time)
+    ? getClassTypesForTime(form.time, form.date)
     : classTypes;
   const selectedClassType =
     form.session &&
     classTypesForSelectedTime.some((classType) => classType.id === form.session)
       ? getClassType(form.session, classTypes)
       : undefined;
-  const maxGuestsPerTime = getMaxGuestsForTimeSlots(timeSlots, classTypes);
+  const maxGuestsPerTime = getMaxGuestsForTimeSlots(activeTimeSlots, classTypes);
   const selectedAvailability =
-    form.date && form.time && form.session && selectedClassType
+    form.date && selectedTimeSlot && form.time && form.session && selectedClassType
       ? availabilityByKey[buildAvailabilityKey(form.date, form.time, form.session)] ??
         createDefaultClassAvailability(form.session, classTypes)
       : undefined;
   const selectedTimeUnavailable =
-    form.date && form.time ? isTimeSlotPast(form.date, form.time, clock) : false;
+    form.date && form.time
+      ? !selectedTimeSlot || isTimeSlotPast(form.date, form.time, clock)
+      : false;
   const selectedDateLabel = activeDate
     ? selectedDateIndex === 0
       ? "Today at MUSE"
       : formatLongDate(activeDate)
     : "Today at MUSE";
-  const classTimeSummary = formatInlineList(timeSlots.map((slot) => slot.time));
+  const classTimeSummary =
+    activeTimeSlots.length > 0
+      ? formatInlineList(activeTimeSlots.map((slot) => slot.time))
+      : "no class times";
   const classCapacitySummary = formatInlineList(
     classTypes.map(
       (classType) =>
@@ -492,8 +531,10 @@ export default function BookingPage() {
     );
   }
 
-  function getClassTypesForTime(time: string) {
-    const slot = timeSlots.find((timeSlot) => timeSlot.time === time);
+  function getClassTypesForTime(time: string, date = form.date || activeDateIso) {
+    const slot = getTimeSlotsForDate(date, weeklySchedule, timeSlots).find(
+      (timeSlot) => timeSlot.time === time,
+    );
 
     return slot ? getTimeSlotClassTypes(slot, classTypes) : classTypes;
   }
@@ -655,6 +696,10 @@ export default function BookingPage() {
           setTimeSlots(payload.settings.timeSlots);
         }
 
+        if (payload.settings?.weeklySchedule?.length) {
+          setWeeklySchedule(payload.settings.weeklySchedule);
+        }
+
         if (payload.settings?.packages?.length) {
           setStudioPackages(payload.settings.packages);
         }
@@ -745,7 +790,11 @@ export default function BookingPage() {
       ? requestedDate
       : activeDateIso || getStudioTodayIso(clock);
     const requestedTime = params.get("time") ?? "";
-    const requestedSlot = timeSlots.find((slot) => slot.time === requestedTime);
+    const requestedSlot = getTimeSlotsForDate(
+      nextDate,
+      weeklySchedule,
+      timeSlots,
+    ).find((slot) => slot.time === requestedTime);
     const nextTime = requestedSlot ? requestedTime : "";
     const requestedSession = params.get("session") ?? "";
     const requestedClassTypeId = getClassType(requestedSession, classTypes)?.id;
@@ -796,6 +845,7 @@ export default function BookingPage() {
     isSettingsLoaded,
     isSignedIn,
     timeSlots,
+    weeklySchedule,
   ]);
 
   useEffect(() => {
@@ -841,7 +891,7 @@ export default function BookingPage() {
     return () => {
       controller.abort();
     };
-  }, [dates, timeSlots]);
+  }, [dates, timeSlots, weeklySchedule]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -971,10 +1021,16 @@ export default function BookingPage() {
       } as BookingFormState;
 
       if (name === "session" || name === "date" || name === "time") {
+        const nextTimeSlot = nextForm.time
+          ? getTimeSlotsForDate(nextForm.date, weeklySchedule, timeSlots).find(
+              (slot) => slot.time === nextForm.time,
+            )
+          : undefined;
+
         if (
           (name === "date" || name === "time") &&
           nextForm.time &&
-          isTimeSlotPast(nextForm.date, nextForm.time, clock)
+          (!nextTimeSlot || isTimeSlotPast(nextForm.date, nextForm.time, clock))
         ) {
           nextForm.time = "";
           nextForm.session = "";
@@ -986,9 +1042,10 @@ export default function BookingPage() {
         }
 
         if (nextForm.time && nextForm.session) {
-          const isSessionAvailableForTime = getClassTypesForTime(nextForm.time).some(
-            (classType) => classType.id === nextForm.session,
-          );
+          const isSessionAvailableForTime = getClassTypesForTime(
+            nextForm.time,
+            nextForm.date,
+          ).some((classType) => classType.id === nextForm.session);
 
           if (!isSessionAvailableForTime) {
             nextForm.session = "";
@@ -1016,6 +1073,17 @@ export default function BookingPage() {
       return;
     }
 
+    const submittedSlot = form.time
+      ? getTimeSlotsForDate(form.date, weeklySchedule, timeSlots).find(
+          (slot) => slot.time === form.time,
+        )
+      : undefined;
+
+    if (!submittedSlot) {
+      setStatusMessage("Choose an available class time for this day.");
+      return;
+    }
+
     if (isTimeSlotPast(form.date, form.time, new Date())) {
       setStatusMessage("This class time is no longer available.");
       return;
@@ -1023,7 +1091,9 @@ export default function BookingPage() {
 
     if (
       form.session &&
-      !getClassTypesForTime(form.time).some((classType) => classType.id === form.session)
+      !getClassTypesForTime(form.time, form.date).some(
+        (classType) => classType.id === form.session,
+      )
     ) {
       setStatusMessage("Choose an available class type for this time.");
       return;
@@ -1587,7 +1657,7 @@ export default function BookingPage() {
                 {[
                   { value: String(maxGuestsPerTime), label: "Per time" },
                   { value: "4h", label: "Cancel window" },
-                  { value: `${timeSlots.length}x`, label: "Daily slots" },
+                  { value: `${activeTimeSlots.length}x`, label: "Daily slots" },
                 ].map((item) => (
                   <motion.div
                     key={item.label}
@@ -1639,6 +1709,17 @@ export default function BookingPage() {
                   transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
                   className="space-y-4"
                 >
+                  {activeSchedule.classes.length === 0 ? (
+                    <div className={`${cardShellClassName} p-5 sm:p-6`}>
+                      <p
+                        className="text-sm leading-7 text-[#f6e8e0]/[0.72]"
+                        style={{ fontFamily: '"Manrope", sans-serif' }}
+                      >
+                        No classes are scheduled for this day.
+                      </p>
+                    </div>
+                  ) : null}
+
                   {activeSchedule.classes.map((slot) => {
                     const slotAvailability = getSlotAvailability(slot);
                     const slotUnavailable = isSlotUnavailable(slot);
@@ -1966,7 +2047,7 @@ export default function BookingPage() {
                           className={fieldClassName}
                         >
                           <option value="">Choose a time</option>
-                          {timeSlots.map((slot) => {
+                          {formTimeSlots.map((slot) => {
                             const optionUnavailable = form.date
                               ? isTimeSlotPast(form.date, slot.time, clock)
                               : false;

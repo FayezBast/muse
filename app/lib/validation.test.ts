@@ -71,8 +71,55 @@ describe("API validation schemas", () => {
       ],
     });
 
-    expect(parsed.timeSlots[0]?.time).toBe("8:15 PM");
-    expect(parsed.timeSlots[0]?.classTypeIds).toEqual(["mat-pilates"]);
+    expect(parsed.timeSlots?.[0]?.time).toBe("8:15 PM");
+    expect(parsed.timeSlots?.[0]?.classTypeIds).toEqual(["mat-pilates"]);
+  });
+
+  it("accepts owner-editable weekly schedule days", () => {
+    const parsed = studioSettingsSchema.parse({
+      classTypes: [
+        {
+          id: "reformer",
+          label: "Reformer",
+          capacity: 4,
+          priceCents: 3500,
+        },
+      ],
+      weeklySchedule: [
+        {
+          day: "monday",
+          label: "Monday",
+          timeSlots: [
+            {
+              time: "6:00 PM",
+              title: "Monday Reformer",
+              subtitle: "Reformer only.",
+              duration: "50 min",
+              classTypeIds: ["reformer"],
+            },
+          ],
+        },
+        {
+          day: "tuesday",
+          label: "Tuesday",
+          timeSlots: [],
+        },
+      ],
+      packages: [
+        {
+          id: "four-class-pack",
+          kicker: "Package One",
+          title: "4 Classes",
+          bonus: "5th class free",
+          points: ["Pay for 4 classes and receive 1 extra class free."],
+        },
+      ],
+    });
+
+    expect(parsed.weeklySchedule?.[0]?.timeSlots[0]?.classTypeIds).toEqual([
+      "reformer",
+    ]);
+    expect(parsed.weeklySchedule?.[1]?.timeSlots).toEqual([]);
   });
 
   it("requires at least one class type per owner-editable time slot", () => {

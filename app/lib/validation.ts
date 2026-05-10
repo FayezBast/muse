@@ -49,6 +49,20 @@ const settingsTimeSlotSchema = z.object({
   classTypeIds: z.array(z.enum(["reformer", "mat-pilates"])).min(1).max(2).optional(),
 });
 
+const settingsWeeklyScheduleDaySchema = z.object({
+  day: z.enum([
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ]),
+  label: z.string().trim().min(1).max(20).optional(),
+  timeSlots: z.array(settingsTimeSlotSchema).max(8),
+});
+
 const settingsPackageSchema = z.object({
   id: z.string().trim().min(1).max(80),
   kicker: z.string().trim().min(1).max(80),
@@ -61,7 +75,8 @@ const settingsPackageSchema = z.object({
 
 export const studioSettingsSchema = z.object({
   classTypes: z.array(settingsClassTypeSchema).min(1).max(2),
-  timeSlots: z.array(settingsTimeSlotSchema).min(1).max(8),
+  timeSlots: z.array(settingsTimeSlotSchema).max(8).optional(),
+  weeklySchedule: z.array(settingsWeeklyScheduleDaySchema).max(7).optional(),
   packages: z.array(settingsPackageSchema).min(1).max(4),
   updatedAt: z.string().optional(),
 });

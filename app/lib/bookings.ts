@@ -9,6 +9,7 @@ import {
   formatPriceLabel,
   getClassType,
   getTimeSlot,
+  getTimeSlotsForDate,
   getTimeSlotClassTypes,
   getTimeSlotSortValue,
   getTotalCapacityForTimeSlots,
@@ -242,15 +243,18 @@ function normalizeDates(dates: string[]) {
 
 function buildDefaultAvailability(
   dates: string[],
-  classTypes: readonly StudioClassType[],
-  timeSlots: readonly StudioTimeSlot[],
+  settings: StudioSettings,
 ): AvailabilityResponse {
   return {
     dates: dates.map((date) => ({
       date,
-      slots: timeSlots.map((slot) => ({
+      slots: getTimeSlotsForDate(
+        date,
+        settings.weeklySchedule,
+        settings.timeSlots,
+      ).map((slot) => ({
         time: slot.time,
-        classes: getTimeSlotClassTypes(slot, classTypes).map((classType) => ({
+        classes: getTimeSlotClassTypes(slot, settings.classTypes).map((classType) => ({
           id: classType.id,
           label: classType.label,
           capacity: classType.capacity,
@@ -432,11 +436,10 @@ function getCountsFromStoredBookings(bookings: StoredBooking[], dates: string[])
 function buildAvailabilityFromStoredBookings(
   bookings: StoredBooking[],
   dates: string[],
-  classTypes: readonly StudioClassType[],
-  timeSlots: readonly StudioTimeSlot[],
+  settings: StudioSettings,
 ) {
   return applyAvailabilityCounts(
-    buildDefaultAvailability(dates, classTypes, timeSlots),
+    buildDefaultAvailability(dates, settings),
     getCountsFromStoredBookings(bookings, dates),
   );
 }
@@ -450,8 +453,7 @@ export async function getAvailability(dates: string[]): Promise<AvailabilityResp
     return buildAvailabilityFromStoredBookings(
       await readLocalBookings(),
       normalizedDates,
-      settings.classTypes,
-      settings.timeSlots,
+      settings,
     );
   }
 
@@ -480,7 +482,7 @@ export async function getAvailability(dates: string[]): Promise<AvailabilityResp
   );
 
   return applyAvailabilityCounts(
-    buildDefaultAvailability(normalizedDates, settings.classTypes, settings.timeSlots),
+    buildDefaultAvailability(normalizedDates, settings),
     result.rows.map((row) => ({
       date: row.class_date,
       time: row.class_time,
@@ -505,7 +507,12 @@ function normalizeBookingInput(
   const notes = cleanText(input.notes);
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   const classType = getClassType(session, settings.classTypes);
-  const timeSlot = getTimeSlot(time, settings.timeSlots);
+  const timeSlotsForDate = getTimeSlotsForDate(
+    date,
+    settings.weeklySchedule,
+    settings.timeSlots,
+  );
+  const timeSlot = getTimeSlot(time, timeSlotsForDate);
 
   if (!name) {
     throw new BookingValidationError("Full name is required.");
@@ -692,9 +699,11 @@ async function createLocalBooking(
     if (idempotentBooking) {
       return {
         booking: buildBookingResponse(idempotentBooking, booking),
-        availability: buildAvailabilityFromStoredBookings(bookings, [
-          booking.date,
-        ], settings.classTypes, settings.timeSlots),
+        availability: buildAvailabilityFromStoredBookings(
+          bookings,
+          [booking.date],
+          settings,
+        ),
       };
     }
 
@@ -751,9 +760,11 @@ async function createLocalBooking(
         { id: storedBooking.id, status },
         booking,
       ),
-      availability: buildAvailabilityFromStoredBookings(nextBookings, [
-        booking.date,
-      ], settings.classTypes, settings.timeSlots),
+      availability: buildAvailabilityFromStoredBookings(
+        nextBookings,
+        [booking.date],
+        settings,
+      ),
     };
   });
 }
@@ -1060,9 +1071,11 @@ export async function cancelUserBooking(
             settings.classTypes,
           ),
         ).slice(0, 50),
-        availability: buildAvailabilityFromStoredBookings(nextBookings, [
-          booking.classDate,
-        ], settings.classTypes, settings.timeSlots),
+        availability: buildAvailabilityFromStoredBookings(
+          nextBookings,
+          [booking.classDate],
+          settings,
+        ),
       };
     });
   }
@@ -1391,7 +1404,10 @@ function buildScheduleForDate(
   const activeBookings = bookings
     .filter(isActiveStaffBooking)
     .filter((booking) => booking.classDate === date);
-  const scheduleTimeSlots = getScheduleTimeSlots(activeBookings, settings.timeSlots);
+  const scheduleTimeSlots = getScheduleTimeSlots(
+    activeBookings,
+    getTimeSlotsForDate(date, settings.weeklySchedule, settings.timeSlots),
+  );
   const slots: StaffScheduleSlot[] = scheduleTimeSlots.map((slot) => {
     const classes = getScheduleClassTypesForSlot(
       slot,
@@ -1669,7 +1685,7 @@ async function getOwnerDashboardFromDatabase(
     classStatsResult.rows.map((row) => [row.session, row]),
   );
   const todayCapacity = getTotalCapacityForTimeSlots(
-    settings.timeSlots,
+    getTimeSlotsForDate(date, settings.weeklySchedule, settings.timeSlots),
     settings.classTypes,
   );
   const recentBookings = recentResult.rows.map((row) =>
@@ -1772,7 +1788,7 @@ export async function getOwnerDashboard(
     };
   });
   const todayCapacity = getTotalCapacityForTimeSlots(
-    settings.timeSlots,
+    getTimeSlotsForDate(date, settings.weeklySchedule, settings.timeSlots),
     settings.classTypes,
   );
 

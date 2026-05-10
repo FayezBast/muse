@@ -1,4 +1,12 @@
 export type ClassTypeId = "reformer" | "mat-pilates";
+export type WeekdayId =
+  | "sunday"
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday";
 
 export type StudioClassType = {
   id: ClassTypeId;
@@ -25,6 +33,22 @@ export type StudioTimeSlot = {
   duration: string;
   classTypeIds: readonly ClassTypeId[];
 };
+
+export type StudioWeeklyScheduleDay = {
+  day: WeekdayId;
+  label: string;
+  timeSlots: StudioTimeSlot[];
+};
+
+export const WEEKDAYS = [
+  { id: "sunday", label: "Sunday" },
+  { id: "monday", label: "Monday" },
+  { id: "tuesday", label: "Tuesday" },
+  { id: "wednesday", label: "Wednesday" },
+  { id: "thursday", label: "Thursday" },
+  { id: "friday", label: "Friday" },
+  { id: "saturday", label: "Saturday" },
+] as const satisfies readonly { id: WeekdayId; label: string }[];
 
 export const DEFAULT_CLASS_TYPES = [
   {
@@ -87,6 +111,17 @@ export const DEFAULT_TIME_SLOTS = [
 ] as const satisfies readonly StudioTimeSlot[];
 
 export const TIME_SLOTS = DEFAULT_TIME_SLOTS;
+
+export const DEFAULT_WEEKLY_SCHEDULE: StudioWeeklyScheduleDay[] = WEEKDAYS.map(
+  (weekday) => ({
+    day: weekday.id,
+    label: weekday.label,
+    timeSlots: DEFAULT_TIME_SLOTS.map((slot) => ({
+      ...slot,
+      classTypeIds: [...slot.classTypeIds],
+    })),
+  }),
+);
 
 export const STUDIO_TIME_ZONE = "Asia/Beirut";
 
@@ -159,6 +194,31 @@ export function getTimeSlot(
   timeSlots: readonly StudioTimeSlot[] = DEFAULT_TIME_SLOTS,
 ) {
   return timeSlots.find((slot) => slot.time === time);
+}
+
+export function getWeekdayIdForIsoDate(dateIso: string): WeekdayId {
+  const [year, month, day] = dateIso.split("-").map(Number);
+  const fallback = WEEKDAYS[0].id;
+
+  if (!year || !month || !day) {
+    return fallback;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  const weekday = WEEKDAYS[date.getUTCDay()];
+
+  return weekday?.id ?? fallback;
+}
+
+export function getTimeSlotsForDate(
+  dateIso: string,
+  weeklySchedule: readonly StudioWeeklyScheduleDay[] | undefined,
+  fallbackTimeSlots: readonly StudioTimeSlot[] = DEFAULT_TIME_SLOTS,
+) {
+  const weekdayId = getWeekdayIdForIsoDate(dateIso);
+  const daySchedule = weeklySchedule?.find((day) => day.day === weekdayId);
+
+  return daySchedule ? daySchedule.timeSlots : fallbackTimeSlots;
 }
 
 export function getTimeSlotMinutes(time: string) {
