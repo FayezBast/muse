@@ -37,6 +37,13 @@ export type BookingNotificationResult =
   | { status: "skipped"; reason: string }
   | { status: "failed"; reason: string };
 
+const EMAIL_PAGE_BACKGROUND = "#efe0da";
+const EMAIL_PAGE_BACKGROUND_STYLE =
+  "background-color:#efe0da;background-image:linear-gradient(180deg,#e7d1ca 0%,#f8f0ec 100%)";
+const EMAIL_BRAND_COLOR = "#611126";
+const EMAIL_BRAND_MUTED_COLOR = "#7b5b54";
+const EMAIL_FOOTER_COLOR = "#8a6a61";
+
 function formatBookingDate(dateIso: string) {
   const [year, month, day] = dateIso.split("-").map(Number);
 
@@ -147,22 +154,22 @@ function buildCustomerEmailBody(details: BookingEmailDetails, ctaUrl?: string) {
     html: `
       <!doctype html>
       <html>
-        <body style="margin:0;padding:0;background:#10040b;font-family:Arial,Helvetica,sans-serif;color:#241019">
+        <body style="margin:0;padding:0;background:${EMAIL_PAGE_BACKGROUND};font-family:Arial,Helvetica,sans-serif;color:#241019">
           <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
             ${escapeHtml(intro)}
           </div>
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#10040b;padding:32px 14px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="${EMAIL_PAGE_BACKGROUND_STYLE};padding:32px 14px">
             <tr>
               <td align="center">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:collapse">
                   <tr>
                     <td style="padding:0 0 16px;text-align:center">
-                      <div style="color:#f7e8e2;font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
-                      <div style="margin-top:8px;color:#d8b5ac;font-size:13px;line-height:1.5">Pilates studio booking</div>
+                      <div style="color:${EMAIL_BRAND_COLOR};font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
+                      <div style="margin-top:8px;color:${EMAIL_BRAND_MUTED_COLOR};font-size:13px;line-height:1.5">Pilates studio booking</div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="border-radius:28px;background:#fffaf7;overflow:hidden;border:1px solid #eadfd9">
+                    <td style="border-radius:28px;background:#fffaf7;overflow:hidden;border:1px solid #dcc8c0;border-top:5px solid #611126;box-shadow:0 24px 60px rgba(97,17,38,0.14)">
                       <div style="padding:34px 30px 28px;text-align:center;background:#fffaf7">
                         <span style="display:inline-block;border-radius:999px;background:${isWaitlist ? "#f5e1e8" : "#e0ece5"};color:${isWaitlist ? "#8a1b3b" : "#315f49"};font-size:12px;line-height:1;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;padding:10px 13px">
                           ${escapeHtml(isWaitlist ? "Waitlist" : "Confirmed")}
@@ -182,7 +189,7 @@ function buildCustomerEmailBody(details: BookingEmailDetails, ctaUrl?: string) {
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:16px 6px 0;color:#b99690;font-size:12px;line-height:1.55;text-align:center">
+                    <td style="padding:16px 6px 0;color:${EMAIL_FOOTER_COLOR};font-size:12px;line-height:1.55;text-align:center">
                       This is a transactional email from MUSE Pilates about your booking.
                     </td>
                   </tr>
@@ -242,22 +249,22 @@ function buildCustomerCancellationEmailBody(
     html: `
       <!doctype html>
       <html>
-        <body style="margin:0;padding:0;background:#10040b;font-family:Arial,Helvetica,sans-serif;color:#241019">
+        <body style="margin:0;padding:0;background:${EMAIL_PAGE_BACKGROUND};font-family:Arial,Helvetica,sans-serif;color:#241019">
           <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
             ${escapeHtml(intro)}
           </div>
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#10040b;padding:32px 14px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="${EMAIL_PAGE_BACKGROUND_STYLE};padding:32px 14px">
             <tr>
               <td align="center">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:collapse">
                   <tr>
                     <td style="padding:0 0 16px;text-align:center">
-                      <div style="color:#f7e8e2;font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
-                      <div style="margin-top:8px;color:#d8b5ac;font-size:13px;line-height:1.5">Pilates studio booking</div>
+                      <div style="color:${EMAIL_BRAND_COLOR};font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
+                      <div style="margin-top:8px;color:${EMAIL_BRAND_MUTED_COLOR};font-size:13px;line-height:1.5">Pilates studio booking</div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="border-radius:28px;background:#fffaf7;overflow:hidden;border:1px solid #eadfd9">
+                    <td style="border-radius:28px;background:#fffaf7;overflow:hidden;border:1px solid #dcc8c0;border-top:5px solid #611126;box-shadow:0 24px 60px rgba(97,17,38,0.14)">
                       <div style="padding:34px 30px 28px;text-align:center;background:#fffaf7">
                         <span style="display:inline-block;border-radius:999px;background:#f5e1e8;color:#8a1b3b;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;padding:10px 13px">
                           Cancelled
@@ -277,7 +284,7 @@ function buildCustomerCancellationEmailBody(
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:16px 6px 0;color:#b99690;font-size:12px;line-height:1.55;text-align:center">
+                    <td style="padding:16px 6px 0;color:${EMAIL_FOOTER_COLOR};font-size:12px;line-height:1.55;text-align:center">
                       This is a transactional email from MUSE Pilates about your booking.
                     </td>
                   </tr>
@@ -337,22 +344,22 @@ function buildEmailBody(
     html: `
       <!doctype html>
       <html>
-        <body style="margin:0;padding:0;background:#10040b;font-family:Arial,Helvetica,sans-serif;color:#241019">
+        <body style="margin:0;padding:0;background:${EMAIL_PAGE_BACKGROUND};font-family:Arial,Helvetica,sans-serif;color:#241019">
           <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
             ${escapeHtml(options.intro)}
           </div>
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#10040b;padding:28px 14px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="${EMAIL_PAGE_BACKGROUND_STYLE};padding:28px 14px">
             <tr>
               <td align="center">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border-collapse:collapse">
                   <tr>
                     <td style="padding:0 0 18px">
-                      <div style="color:#f7e8e2;font-size:24px;line-height:1;font-weight:800;letter-spacing:3px">MUSE</div>
-                      <div style="margin-top:7px;color:#d8b5ac;font-size:13px;line-height:1.5">Pilates studio booking</div>
+                      <div style="color:${EMAIL_BRAND_COLOR};font-size:24px;line-height:1;font-weight:800;letter-spacing:3px">MUSE</div>
+                      <div style="margin-top:7px;color:${EMAIL_BRAND_MUTED_COLOR};font-size:13px;line-height:1.5">Pilates studio booking</div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="border-radius:24px;background:#f7e8e2;overflow:hidden">
+                    <td style="border-radius:24px;background:#f7e8e2;overflow:hidden;border:1px solid #dcc8c0;box-shadow:0 24px 60px rgba(97,17,38,0.14)">
                       <div style="padding:32px 28px 24px;background:#611126;color:#fff7f1">
                         <div style="font-size:12px;line-height:1.3;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:#e8c4ba">${escapeHtml(options.eyebrow)}</div>
                         <h1 style="margin:12px 0 0;color:#fff7f1;font-size:28px;line-height:1.16;font-weight:800;letter-spacing:0">${escapeHtml(options.title)}</h1>
@@ -381,7 +388,7 @@ function buildEmailBody(
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:18px 4px 0;color:#b99690;font-size:12px;line-height:1.55">
+                    <td style="padding:18px 4px 0;color:${EMAIL_FOOTER_COLOR};font-size:12px;line-height:1.55">
                       This is a transactional booking email from MUSE. You received it because a booking request was made on muse-booking.com.
                     </td>
                   </tr>
