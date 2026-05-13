@@ -27,6 +27,9 @@ type BookingEmailBodyOptions = {
   intro: string;
   footer: string;
   ctaUrl?: string;
+  statusBg?: string;
+  statusColor?: string;
+  statusLabel?: string;
 };
 
 export type BookingNotificationResult =
@@ -63,7 +66,7 @@ function formatStatus(details: BookingEmailDetails) {
   return details.status === "waitlist" ? "Waitlist request" : "Confirmed";
 }
 
-function buildStaffBookingRows(details: BookingEmailDetails) {
+function buildStaffBookingRows(details: BookingEmailDetails, statusLabel = formatStatus(details)) {
   return [
     { label: "Name", value: details.customerName },
     { label: "Email", value: details.customerEmail },
@@ -72,7 +75,7 @@ function buildStaffBookingRows(details: BookingEmailDetails) {
     { label: "Date", value: formatBookingDate(details.date) },
     { label: "Time", value: details.time },
     { label: "Price", value: details.priceLabel },
-    { label: "Status", value: formatStatus(details) },
+    { label: "Status", value: statusLabel },
     details.notes ? { label: "Notes", value: details.notes } : undefined,
     { label: "Booking ID", value: details.id },
   ].filter(
@@ -80,8 +83,8 @@ function buildStaffBookingRows(details: BookingEmailDetails) {
   );
 }
 
-function buildStaffBookingLines(details: BookingEmailDetails) {
-  return buildStaffBookingRows(details).map((row) => `${row.label}: ${row.value}`);
+function buildStaffBookingLines(details: BookingEmailDetails, statusLabel?: string) {
+  return buildStaffBookingRows(details, statusLabel).map((row) => `${row.label}: ${row.value}`);
 }
 
 function getBookingUrl() {
@@ -144,18 +147,18 @@ function buildCustomerEmailBody(details: BookingEmailDetails, ctaUrl?: string) {
     html: `
       <!doctype html>
       <html>
-        <body style="margin:0;padding:0;background:#f2e9e4;font-family:Arial,Helvetica,sans-serif;color:#241019">
+        <body style="margin:0;padding:0;background:#10040b;font-family:Arial,Helvetica,sans-serif;color:#241019">
           <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
             ${escapeHtml(intro)}
           </div>
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2e9e4;padding:32px 14px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#10040b;padding:32px 14px">
             <tr>
               <td align="center">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:collapse">
                   <tr>
                     <td style="padding:0 0 16px;text-align:center">
-                      <div style="color:#241019;font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
-                      <div style="margin-top:8px;color:#7b5b54;font-size:13px;line-height:1.5">Pilates studio booking</div>
+                      <div style="color:#f7e8e2;font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
+                      <div style="margin-top:8px;color:#d8b5ac;font-size:13px;line-height:1.5">Pilates studio booking</div>
                     </td>
                   </tr>
                   <tr>
@@ -179,7 +182,102 @@ function buildCustomerEmailBody(details: BookingEmailDetails, ctaUrl?: string) {
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:16px 6px 0;color:#8a6a61;font-size:12px;line-height:1.55;text-align:center">
+                    <td style="padding:16px 6px 0;color:#b99690;font-size:12px;line-height:1.55;text-align:center">
+                      This is a transactional email from MUSE Pilates about your booking.
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `,
+  };
+}
+
+function buildCustomerCancellationEmailBody(
+  details: BookingEmailDetails,
+  ctaUrl?: string,
+) {
+  const title = "Your cancellation is confirmed";
+  const intro = "Your MUSE booking has been cancelled.";
+  const rows = [
+    { label: "Class", value: details.sessionLabel },
+    { label: "Date", value: formatBookingDate(details.date) },
+    { label: "Time", value: details.time },
+  ];
+  const htmlRows = rows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding:14px 0;border-bottom:1px solid #eadfd9;color:#8a6a61;font-size:12px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;vertical-align:top;width:30%">${escapeHtml(row.label)}</td>
+          <td style="padding:14px 0;border-bottom:1px solid #eadfd9;color:#241019;font-size:17px;line-height:1.35;font-weight:700;vertical-align:top">${escapeHtml(row.value)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+  const cta = ctaUrl
+    ? `
+      <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;margin-top:22px;border-radius:999px;background:#241019;color:#fff8f3;font-size:14px;font-weight:700;line-height:1;text-decoration:none;padding:14px 20px">
+        Book another class
+      </a>
+    `
+    : "";
+
+  return {
+    text: [
+      "MUSE Pilates",
+      title,
+      "",
+      intro,
+      "",
+      ...rows.map((row) => `${row.label}: ${row.value}`),
+      "",
+      "We hope to see you again soon.",
+      ctaUrl ? `Book another class: ${ctaUrl}` : undefined,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n"),
+    html: `
+      <!doctype html>
+      <html>
+        <body style="margin:0;padding:0;background:#10040b;font-family:Arial,Helvetica,sans-serif;color:#241019">
+          <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+            ${escapeHtml(intro)}
+          </div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#10040b;padding:32px 14px">
+            <tr>
+              <td align="center">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:collapse">
+                  <tr>
+                    <td style="padding:0 0 16px;text-align:center">
+                      <div style="color:#f7e8e2;font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
+                      <div style="margin-top:8px;color:#d8b5ac;font-size:13px;line-height:1.5">Pilates studio booking</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="border-radius:28px;background:#fffaf7;overflow:hidden;border:1px solid #eadfd9">
+                      <div style="padding:34px 30px 28px;text-align:center;background:#fffaf7">
+                        <span style="display:inline-block;border-radius:999px;background:#f5e1e8;color:#8a1b3b;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;padding:10px 13px">
+                          Cancelled
+                        </span>
+                        <h1 style="margin:18px 0 0;color:#241019;font-size:31px;line-height:1.12;font-weight:800;letter-spacing:0">${escapeHtml(title)}</h1>
+                        <p style="margin:14px auto 0;max-width:410px;color:#5f4741;font-size:15px;line-height:1.65">${escapeHtml(intro)}</p>
+                      </div>
+                      <div style="padding:0 30px 32px">
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
+                          ${htmlRows}
+                        </table>
+                        <p style="margin:20px 0 0;color:#5f4741;font-size:14px;line-height:1.65">
+                          We hope to see you again soon.
+                        </p>
+                        ${cta}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:16px 6px 0;color:#b99690;font-size:12px;line-height:1.55;text-align:center">
                       This is a transactional email from MUSE Pilates about your booking.
                     </td>
                   </tr>
@@ -197,10 +295,13 @@ function buildEmailBody(
   details: BookingEmailDetails,
   options: BookingEmailBodyOptions,
 ) {
-  const rows = buildStaffBookingRows(details);
-  const lines = buildStaffBookingLines(details);
-  const statusColor = details.status === "waitlist" ? "#8a1b3b" : "#426b57";
-  const statusBg = details.status === "waitlist" ? "#f4dce3" : "#dcebe1";
+  const statusLabel = options.statusLabel ?? formatStatus(details);
+  const rows = buildStaffBookingRows(details, statusLabel);
+  const lines = buildStaffBookingLines(details, statusLabel);
+  const statusColor =
+    options.statusColor ?? (details.status === "waitlist" ? "#8a1b3b" : "#426b57");
+  const statusBg =
+    options.statusBg ?? (details.status === "waitlist" ? "#f4dce3" : "#dcebe1");
   const htmlRows = rows
     .map((row) => {
       return `
@@ -262,7 +363,7 @@ function buildEmailBody(
                           <tr>
                             <td style="padding:0 0 18px">
                               <span style="display:inline-block;border-radius:999px;background:${statusBg};color:${statusColor};font-size:13px;line-height:1;font-weight:800;padding:9px 12px">
-                                ${escapeHtml(formatStatus(details))}
+                                ${escapeHtml(statusLabel)}
                               </span>
                             </td>
                           </tr>
@@ -390,6 +491,76 @@ export async function sendBookingNotifications(
         error instanceof Error
           ? error.message
           : "Unable to send booking notification emails.",
+    };
+  }
+}
+
+export async function sendBookingCancellationNotifications(
+  details: BookingEmailDetails,
+): Promise<BookingNotificationResult> {
+  const instructorEmail = process.env.BOOKING_INSTRUCTOR_EMAIL;
+  const ownerEmail = process.env.BOOKING_OWNER_EMAIL;
+  const replyToEmail = process.env.BOOKING_REPLY_TO_EMAIL ?? ownerEmail;
+
+  if (
+    !process.env.RESEND_API_KEY ||
+    !process.env.BOOKING_EMAIL_FROM ||
+    !instructorEmail ||
+    !ownerEmail
+  ) {
+    return {
+      status: "skipped",
+      reason:
+        "Email notifications are not configured. Set RESEND_API_KEY, BOOKING_EMAIL_FROM, BOOKING_INSTRUCTOR_EMAIL, and BOOKING_OWNER_EMAIL.",
+    };
+  }
+
+  const bookingUrl = getBookingUrl();
+  const previousStatus = formatStatus(details).toLowerCase();
+  const customerBody = buildCustomerCancellationEmailBody(details, bookingUrl);
+  const staffBody = buildEmailBody(details, {
+    title: "Booking cancelled",
+    eyebrow: "Cancellation",
+    intro: `${details.customerName} cancelled their ${previousStatus} booking. Customer and class details are below.`,
+    footer: "No action is required unless you need to follow up with the customer.",
+    ctaUrl: bookingUrl,
+    statusBg: "#f4dce3",
+    statusColor: "#8a1b3b",
+    statusLabel: "Cancelled",
+  });
+  const customerSubject = "MUSE Pilates cancellation confirmed";
+  const staffSubject = `MUSE booking cancelled: ${details.customerName} - ${details.date} ${details.time}`;
+
+  try {
+    await Promise.all([
+      sendResendEmail({
+        to: details.customerEmail,
+        subject: customerSubject,
+        replyTo: replyToEmail,
+        ...customerBody,
+      }),
+      sendResendEmail({
+        to: instructorEmail,
+        subject: staffSubject,
+        replyTo: details.customerEmail,
+        ...staffBody,
+      }),
+      sendResendEmail({
+        to: ownerEmail,
+        subject: staffSubject,
+        replyTo: details.customerEmail,
+        ...staffBody,
+      }),
+    ]);
+
+    return { status: "sent" };
+  } catch (error) {
+    return {
+      status: "failed",
+      reason:
+        error instanceof Error
+          ? error.message
+          : "Unable to send booking cancellation emails.",
     };
   }
 }

@@ -588,6 +588,7 @@ export type CancelBookingResult = {
   booking: UserBookingSummary;
   bookings: UserBookingSummary[];
   availability: AvailabilityResponse;
+  notification?: CreatedBookingNotificationDetails;
 };
 
 function formatCreatedAt(value: string | Date | undefined) {
@@ -1095,6 +1096,8 @@ export async function cancelUserBooking(
         );
       }
 
+      const cancelledStatus: BookingStatus =
+        booking.status === "waitlist" ? "waitlist" : "confirmed";
       const cancelledBooking: StoredBooking = {
         ...booking,
         status: "cancelled",
@@ -1145,6 +1148,18 @@ export async function cancelUserBooking(
           [booking.classDate],
           settings,
         ),
+        notification: {
+          id: booking.id,
+          status: cancelledStatus,
+          sessionLabel: cancelledSummary.sessionLabel,
+          date: booking.classDate,
+          time: booking.classTime,
+          priceLabel: cancelledSummary.priceLabel,
+          customerName: booking.name,
+          customerEmail: booking.email,
+          phone: booking.phone,
+          notes: booking.notes,
+        },
       };
     });
   }
@@ -1160,6 +1175,10 @@ export async function cancelUserBooking(
         class_date: string;
         class_time: string;
         price_cents: number;
+        name: string;
+        email: string;
+        phone: string | null;
+        notes: string | null;
       }
     | undefined;
 
@@ -1174,6 +1193,10 @@ export async function cancelUserBooking(
       class_date: string;
       class_time: string;
       price_cents: number;
+      name: string;
+      email: string;
+      phone: string | null;
+      notes: string | null;
     }>(
       `
         SELECT
@@ -1183,7 +1206,11 @@ export async function cancelUserBooking(
           session,
           to_char(class_date, 'YYYY-MM-DD') AS class_date,
           class_time,
-          price_cents
+          price_cents,
+          name,
+          email,
+          phone,
+          notes
         FROM bookings
         WHERE id::text = $1
           AND user_id = $2
@@ -1269,6 +1296,18 @@ export async function cancelUserBooking(
     booking: summary,
     bookings: await getUserBookings(userId),
     availability: await getAvailability([cancelledBooking.class_date]),
+    notification: {
+      id: cancelledBooking.id,
+      status: cancelledBooking.status,
+      sessionLabel: summary.sessionLabel,
+      date: cancelledBooking.class_date,
+      time: cancelledBooking.class_time,
+      priceLabel: summary.priceLabel,
+      customerName: cancelledBooking.name,
+      customerEmail: cancelledBooking.email,
+      phone: cancelledBooking.phone,
+      notes: cancelledBooking.notes,
+    },
   };
 }
 

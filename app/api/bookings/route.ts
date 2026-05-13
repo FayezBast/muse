@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { queueBookingNotifications } from "../../lib/email-queue";
+import { sendBookingCancellationNotifications } from "../../lib/email";
 import { auth, clerkClient } from "../../lib/auth-server";
 import {
   type BookingOwner,
@@ -189,8 +190,15 @@ export async function DELETE(request: Request) {
 
   try {
     const payload = await parseJsonBody(request, cancelBookingSchema);
+    const result = await cancelUserBooking(userId, payload.bookingId);
+    const notificationResult = result.notification
+      ? await sendBookingCancellationNotifications(result.notification)
+      : { status: "skipped", reason: "Cancellation notification details unavailable." };
 
-    return NextResponse.json(await cancelUserBooking(userId, payload.bookingId));
+    return NextResponse.json({
+      ...result,
+      notification: notificationResult,
+    });
   } catch (error) {
     const validationResponse = jsonError(error, "Unable to cancel booking.");
 
