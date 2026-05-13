@@ -45,6 +45,9 @@ export default function AuthPageShell({
             <p className="mt-5 max-w-md text-sm leading-7 text-[#f6e8e0]/72 sm:text-base sm:leading-8">
               Use your MUSE account to reserve classes and manage upcoming bookings.
             </p>
+            <p className="mt-3 max-w-md text-xs leading-6 text-[#f1c9bf]/78 sm:text-sm">
+              If you do not see the email, check your junk or trash folder.
+            </p>
           </div>
 
           <div className="flex justify-center lg:justify-end">{children}</div>
