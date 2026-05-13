@@ -1,6 +1,13 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import AuthCircle from "../AuthCircle";
 import { useAuth } from "../lib/auth-client";
 import {
@@ -234,6 +241,8 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const scheduleSlotKeys = useRef(new WeakMap<StudioTimeSlot, string>());
+  const nextScheduleSlotKey = useRef(0);
 
   const capacityPercent = useMemo(() => {
     if (!dashboard?.stats.totalCapacityToday) {
@@ -252,13 +261,44 @@ export default function AdminPage() {
     draftSettings.weeklySchedule[0];
   const selectedDaySlots = selectedDaySchedule?.timeSlots ?? [];
 
-  async function loadDashboard(date = selectedDate, signal?: AbortSignal) {
+  function getScheduleSlotKey(day: WeekdayId, slot: StudioTimeSlot) {
+    const existingKey = scheduleSlotKeys.current.get(slot);
+
+    if (existingKey) {
+      return existingKey;
+    }
+
+    const nextKey = `${day}-${nextScheduleSlotKey.current}`;
+    nextScheduleSlotKey.current += 1;
+    scheduleSlotKeys.current.set(slot, nextKey);
+
+    return nextKey;
+  }
+
+  function preserveScheduleSlotKey(
+    day: WeekdayId,
+    previousSlot: StudioTimeSlot,
+    nextSlot: StudioTimeSlot,
+  ) {
+    scheduleSlotKeys.current.set(nextSlot, getScheduleSlotKey(day, previousSlot));
+
+    return nextSlot;
+  }
+
+  async function loadDashboard(
+    date = selectedDate,
+    signal?: AbortSignal,
+    options: { clearMessage?: boolean } = {},
+  ) {
     if (!isSignedIn) {
       return;
     }
 
     setIsLoading(true);
-    setMessage("");
+
+    if (options.clearMessage !== false) {
+      setMessage("");
+    }
 
     try {
       const response = await fetch(
@@ -359,11 +399,11 @@ export default function AdminPage() {
                   return slot;
                 }
 
-                return {
+                return preserveScheduleSlotKey(day.day, slot, {
                   ...slot,
                   [key]:
                     key === "time" ? displayTimeFromInput(value, slot.time) : value,
-                };
+                });
               })
             : day.timeSlots,
       })),
@@ -398,10 +438,10 @@ export default function AdminPage() {
                   .map((classType) => classType.id)
                   .filter((id) => nextIds.includes(id));
 
-                return {
+                return preserveScheduleSlotKey(day.day, slot, {
                   ...slot,
                   classTypeIds: sortedIds,
-                };
+                });
               })
             : day.timeSlots,
       })),
@@ -520,8 +560,8 @@ export default function AdminPage() {
         setDraftSettings(payload.settings);
       }
 
-      setMessage("Studio settings saved.");
-      await loadDashboard(selectedDate);
+      await loadDashboard(selectedDate, undefined, { clearMessage: false });
+      setMessage("Studio settings saved. Reload the booking page if it is already open.");
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Unable to save studio settings.",
@@ -797,7 +837,11 @@ export default function AdminPage() {
           </aside>
         </section>
 
-        <form onSubmit={handleSave} className={`${panelClassName} mt-6 p-5 sm:p-7`}>
+        <form
+          noValidate
+          onSubmit={handleSave}
+          className={`${panelClassName} mt-6 p-5 sm:p-7`}
+        >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#f1c9bf]">
@@ -815,6 +859,11 @@ export default function AdminPage() {
               {isSaving ? "Saving..." : "Save changes"}
             </button>
           </div>
+          {message ? (
+            <p className="mt-4 rounded-[18px] border border-white/10 bg-white/[0.045] p-4 text-sm leading-7 text-[#f1c9bf]">
+              {message}
+            </p>
+          ) : null}
 
           <div className="mt-7 grid gap-5 xl:grid-cols-[0.75fr_1.25fr]">
             <section className="rounded-[22px] border border-white/10 bg-black/18 p-4 sm:p-5">
@@ -925,7 +974,7 @@ export default function AdminPage() {
 
                   return (
                     <article
-                      key={`${selectedScheduleDay}-${index}`}
+                      key={getScheduleSlotKey(selectedScheduleDay, slot)}
                       className="rounded-[18px] border border-white/10 bg-white/[0.035] p-4"
                     >
                       <div className="grid gap-4 sm:grid-cols-2">
