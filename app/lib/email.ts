@@ -63,7 +63,7 @@ function formatStatus(details: BookingEmailDetails) {
   return details.status === "waitlist" ? "Waitlist request" : "Confirmed";
 }
 
-function buildBookingRows(details: BookingEmailDetails) {
+function buildStaffBookingRows(details: BookingEmailDetails) {
   return [
     { label: "Name", value: details.customerName },
     { label: "Email", value: details.customerEmail },
@@ -80,8 +80,8 @@ function buildBookingRows(details: BookingEmailDetails) {
   );
 }
 
-function buildBookingLines(details: BookingEmailDetails) {
-  return buildBookingRows(details).map((row) => `${row.label}: ${row.value}`);
+function buildStaffBookingLines(details: BookingEmailDetails) {
+  return buildStaffBookingRows(details).map((row) => `${row.label}: ${row.value}`);
 }
 
 function getBookingUrl() {
@@ -98,12 +98,107 @@ function getBookingUrl() {
   }
 }
 
+function buildCustomerEmailBody(details: BookingEmailDetails, ctaUrl?: string) {
+  const isWaitlist = details.status === "waitlist";
+  const title = isWaitlist ? "You are on the waitlist" : "Your class is confirmed";
+  const intro = isWaitlist
+    ? "We saved your waitlist request. The studio team will reply if a spot opens."
+    : "Your spot is saved. We look forward to seeing you at MUSE.";
+  const rows = [
+    { label: "Class", value: details.sessionLabel },
+    { label: "Date", value: formatBookingDate(details.date) },
+    { label: "Time", value: details.time },
+  ];
+  const htmlRows = rows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding:14px 0;border-bottom:1px solid #eadfd9;color:#8a6a61;font-size:12px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;vertical-align:top;width:30%">${escapeHtml(row.label)}</td>
+          <td style="padding:14px 0;border-bottom:1px solid #eadfd9;color:#241019;font-size:17px;line-height:1.35;font-weight:700;vertical-align:top">${escapeHtml(row.value)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+  const cta = ctaUrl
+    ? `
+      <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;margin-top:22px;border-radius:999px;background:#241019;color:#fff8f3;font-size:14px;font-weight:700;line-height:1;text-decoration:none;padding:14px 20px">
+        Manage booking
+      </a>
+    `
+    : "";
+
+  return {
+    text: [
+      "MUSE Pilates",
+      title,
+      "",
+      intro,
+      "",
+      ...rows.map((row) => `${row.label}: ${row.value}`),
+      "",
+      "Need to change anything? Reply to this email and the studio team will help.",
+      ctaUrl ? `Manage booking: ${ctaUrl}` : undefined,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n"),
+    html: `
+      <!doctype html>
+      <html>
+        <body style="margin:0;padding:0;background:#f2e9e4;font-family:Arial,Helvetica,sans-serif;color:#241019">
+          <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+            ${escapeHtml(intro)}
+          </div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2e9e4;padding:32px 14px">
+            <tr>
+              <td align="center">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:collapse">
+                  <tr>
+                    <td style="padding:0 0 16px;text-align:center">
+                      <div style="color:#241019;font-size:26px;line-height:1;font-weight:800;letter-spacing:4px">MUSE</div>
+                      <div style="margin-top:8px;color:#7b5b54;font-size:13px;line-height:1.5">Pilates studio booking</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="border-radius:28px;background:#fffaf7;overflow:hidden;border:1px solid #eadfd9">
+                      <div style="padding:34px 30px 28px;text-align:center;background:#fffaf7">
+                        <span style="display:inline-block;border-radius:999px;background:${isWaitlist ? "#f5e1e8" : "#e0ece5"};color:${isWaitlist ? "#8a1b3b" : "#315f49"};font-size:12px;line-height:1;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;padding:10px 13px">
+                          ${escapeHtml(isWaitlist ? "Waitlist" : "Confirmed")}
+                        </span>
+                        <h1 style="margin:18px 0 0;color:#241019;font-size:31px;line-height:1.12;font-weight:800;letter-spacing:0">${escapeHtml(title)}</h1>
+                        <p style="margin:14px auto 0;max-width:410px;color:#5f4741;font-size:15px;line-height:1.65">${escapeHtml(intro)}</p>
+                      </div>
+                      <div style="padding:0 30px 32px">
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
+                          ${htmlRows}
+                        </table>
+                        <p style="margin:20px 0 0;color:#5f4741;font-size:14px;line-height:1.65">
+                          Need to change anything? Reply to this email and the studio team will help.
+                        </p>
+                        ${cta}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:16px 6px 0;color:#8a6a61;font-size:12px;line-height:1.55;text-align:center">
+                      This is a transactional email from MUSE Pilates about your booking.
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `,
+  };
+}
+
 function buildEmailBody(
   details: BookingEmailDetails,
   options: BookingEmailBodyOptions,
 ) {
-  const rows = buildBookingRows(details);
-  const lines = buildBookingLines(details);
+  const rows = buildStaffBookingRows(details);
+  const lines = buildStaffBookingLines(details);
   const statusColor = details.status === "waitlist" ? "#8a1b3b" : "#426b57";
   const statusBg = details.status === "waitlist" ? "#f4dce3" : "#dcebe1";
   const htmlRows = rows
@@ -250,20 +345,7 @@ export async function sendBookingNotifications(
   }
 
   const bookingUrl = getBookingUrl();
-  const customerBody = buildEmailBody(details, {
-    title:
-      details.status === "waitlist"
-        ? "Your waitlist request is received"
-        : "Your booking is confirmed",
-    eyebrow: "Booking confirmation",
-    intro:
-      details.status === "waitlist"
-        ? "We received your waitlist request and saved the details below. The studio team will follow up if a spot opens."
-        : "Thank you for booking with MUSE. Your class details are confirmed below.",
-    footer:
-      "Need to change anything? Reply to this email and the studio team will help.",
-    ctaUrl: bookingUrl,
-  });
+  const customerBody = buildCustomerEmailBody(details, bookingUrl);
   const staffBody = buildEmailBody(details, {
     title: "New booking received",
     eyebrow: "Studio notification",
@@ -274,8 +356,8 @@ export async function sendBookingNotifications(
   });
   const customerSubject =
     details.status === "waitlist"
-      ? `MUSE waitlist request: ${details.sessionLabel} on ${formatBookingDate(details.date)}`
-      : `MUSE booking confirmed: ${details.sessionLabel} on ${formatBookingDate(details.date)}`;
+      ? "MUSE Pilates waitlist received"
+      : "MUSE Pilates booking confirmed";
   const staffSubject = `New MUSE booking: ${details.customerName} - ${details.date} ${details.time}`;
 
   try {

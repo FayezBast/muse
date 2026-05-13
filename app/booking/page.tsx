@@ -26,6 +26,7 @@ import {
   formatStudioCalendarDateTime,
   getClassType,
   getMaxGuestsPerTime,
+  getStudioClassStart,
   getStudioTodayIso,
   getTimeSlotsForDate,
   getTimeSlotClassTypes,
@@ -339,6 +340,22 @@ function formatBookingSummaryDate(dateIso: string) {
   }).format(new Date(year, month - 1, day));
 }
 
+function getBookingStartTime(booking: UserBookingSummary) {
+  return getStudioClassStart(booking.date, booking.time)?.getTime() ?? 0;
+}
+
+function sortUpcomingBookings(bookings: UserBookingSummary[]) {
+  return bookings.toSorted(
+    (first, second) => getBookingStartTime(first) - getBookingStartTime(second),
+  );
+}
+
+function sortOldBookings(bookings: UserBookingSummary[]) {
+  return bookings.toSorted(
+    (first, second) => getBookingStartTime(second) - getBookingStartTime(first),
+  );
+}
+
 function buildGoogleCalendarUrl(booking: UserBookingSummary) {
   const dates = formatStudioCalendarDateTime(booking.date, booking.time);
   const params = new URLSearchParams({
@@ -356,32 +373,8 @@ function buildGoogleCalendarUrl(booking: UserBookingSummary) {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-function buildIcsDataUrl(booking: UserBookingSummary) {
-  const dates = formatStudioCalendarDateTime(booking.date, booking.time);
-
-  if (!dates) {
-    return "";
-  }
-
-  const uid = `${booking.id}@muse-pilates`;
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//MUSE Pilates//Booking//EN",
-    "X-WR-TIMEZONE:Asia/Beirut",
-    "BEGIN:VEVENT",
-    `UID:${uid}`,
-    `DTSTAMP:${new Date().toISOString().replaceAll(/[-:]/g, "").split(".")[0]}Z`,
-    `DTSTART;TZID=Asia/Beirut:${dates.start}`,
-    `DTEND;TZID=Asia/Beirut:${dates.end}`,
-    `SUMMARY:MUSE Pilates - ${booking.sessionLabel}`,
-    `DESCRIPTION:MUSE ${booking.sessionLabel} booking (${booking.status}).`,
-    "LOCATION:MUSE Pilates",
-    "END:VEVENT",
-    "END:VCALENDAR",
-  ];
-
-  return `data:text/calendar;charset=utf-8,${encodeURIComponent(lines.join("\r\n"))}`;
+function buildCalendarDownloadUrl(booking: UserBookingSummary) {
+  return `/api/bookings/${encodeURIComponent(booking.id)}/calendar`;
 }
 
 function isIsoDateParam(value: string | null): value is string {
@@ -523,6 +516,20 @@ export default function BookingPage() {
   const userFullName =
     user?.fullName ||
     [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
+  const upcomingBookings = useMemo(
+    () =>
+      sortUpcomingBookings(
+        myBookings.filter((booking) => !isTimeSlotPast(booking.date, booking.time, clock)),
+      ),
+    [clock, myBookings],
+  );
+  const oldBookings = useMemo(
+    () =>
+      sortOldBookings(
+        myBookings.filter((booking) => isTimeSlotPast(booking.date, booking.time, clock)),
+      ),
+    [clock, myBookings],
+  );
 
   function getAvailabilityFor(date: string, time: string, classTypeId: ClassTypeId) {
     return (
@@ -2165,7 +2172,7 @@ export default function BookingPage() {
                     className="mt-3 text-[2.1rem] leading-tight text-[#f7e8e2] sm:text-4xl"
                     style={{ fontFamily: '"Cormorant Garamond", serif' }}
                   >
-                    Your upcoming reservations.
+                    Your reservations.
                   </h2>
                   {userEmail ? (
                     <p
@@ -2195,78 +2202,160 @@ export default function BookingPage() {
                   Loading bookings...
                 </p>
               ) : myBookings.length > 0 ? (
-                <div className="mt-6 grid gap-3 md:grid-cols-2">
-                  {myBookings.map((booking) => {
-                    const icsUrl = buildIcsDataUrl(booking);
-                    const isCancelling = cancellingBookingId === booking.id;
-
-                    return (
-                      <article
-                        key={booking.id}
-                        className="rounded-[22px] border border-white/10 bg-white/[0.045] p-4 sm:p-5"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p
-                              className="text-sm font-semibold text-[#f7e8e2]"
-                              style={{ fontFamily: '"Manrope", sans-serif' }}
-                            >
-                              {booking.sessionLabel} · {booking.priceLabel}
-                            </p>
-                            <p
-                              className="mt-2 text-2xl leading-tight text-[#f4c8be]"
-                              style={{ fontFamily: '"Cormorant Garamond", serif' }}
-                            >
-                              {formatBookingSummaryDate(booking.date)}
-                            </p>
-                            <p
-                              className="mt-1 text-sm text-[#f6e8e0]/[0.72]"
-                              style={{ fontFamily: '"Manrope", sans-serif' }}
-                            >
-                              {booking.time}
-                            </p>
-                          </div>
-                          <span
-                            className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f1c9bf]"
-                            style={{ fontFamily: '"Manrope", sans-serif' }}
-                          >
-                            {booking.status === "waitlist" ? "Waitlist" : "Confirmed"}
-                          </span>
-                        </div>
-
-                        <div
-                          className="mt-4 flex flex-wrap gap-2"
+                <div className="mt-6 space-y-7">
+                  {upcomingBookings.length > 0 ? (
+                    <section>
+                      <div className="flex items-center justify-between gap-4">
+                        <h3
+                          className="text-sm font-semibold uppercase tracking-[0.22em] text-[#f1c9bf]"
                           style={{ fontFamily: '"Manrope", sans-serif' }}
                         >
-                          <a
-                            href={buildGoogleCalendarUrl(booking)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-white/[0.16] px-3 text-xs font-semibold text-[#f6e8e0] transition hover:border-white/[0.26] hover:bg-white/[0.08]"
-                          >
-                            Google Calendar
-                          </a>
-                          {icsUrl ? (
-                            <a
-                              href={icsUrl}
-                              download={`muse-${booking.date}-${booking.time.replaceAll(" ", "-")}.ics`}
-                              className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-white/[0.16] px-3 text-xs font-semibold text-[#f6e8e0] transition hover:border-white/[0.26] hover:bg-white/[0.08]"
+                          Upcoming
+                        </h3>
+                        <span
+                          className="text-xs text-[#f6e8e0]/[0.58]"
+                          style={{ fontFamily: '"Manrope", sans-serif' }}
+                        >
+                          {upcomingBookings.length}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        {upcomingBookings.map((booking) => {
+                          const isCancelling = cancellingBookingId === booking.id;
+
+                          return (
+                            <article
+                              key={booking.id}
+                              className="rounded-[22px] border border-white/10 bg-white/[0.045] p-4 sm:p-5"
                             >
-                              Apple/Outlook
-                            </a>
-                          ) : null}
-                          <button
-                            type="button"
-                            disabled={Boolean(cancellingBookingId)}
-                            onClick={() => handleCancelBooking(booking)}
-                            className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-[#f1c9bf]/[0.35] px-3 text-xs font-semibold text-[#f1c9bf] transition hover:border-[#f1c9bf]/[0.6] hover:bg-[#f1c9bf]/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <p
+                                    className="text-sm font-semibold text-[#f7e8e2]"
+                                    style={{ fontFamily: '"Manrope", sans-serif' }}
+                                  >
+                                    {booking.sessionLabel} · {booking.priceLabel}
+                                  </p>
+                                  <p
+                                    className="mt-2 text-2xl leading-tight text-[#f4c8be]"
+                                    style={{ fontFamily: '"Cormorant Garamond", serif' }}
+                                  >
+                                    {formatBookingSummaryDate(booking.date)}
+                                  </p>
+                                  <p
+                                    className="mt-1 text-sm text-[#f6e8e0]/[0.72]"
+                                    style={{ fontFamily: '"Manrope", sans-serif' }}
+                                  >
+                                    {booking.time}
+                                  </p>
+                                </div>
+                                <span
+                                  className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f1c9bf]"
+                                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                                >
+                                  {booking.status === "waitlist" ? "Waitlist" : "Confirmed"}
+                                </span>
+                              </div>
+
+                              <div
+                                className="mt-4 flex flex-wrap gap-2"
+                                style={{ fontFamily: '"Manrope", sans-serif' }}
+                              >
+                                <a
+                                  href={buildGoogleCalendarUrl(booking)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-white/[0.16] px-3 text-xs font-semibold text-[#f6e8e0] transition hover:border-white/[0.26] hover:bg-white/[0.08]"
+                                >
+                                  Google Calendar
+                                </a>
+                                <a
+                                  href={buildCalendarDownloadUrl(booking)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-white/[0.16] px-3 text-xs font-semibold text-[#f6e8e0] transition hover:border-white/[0.26] hover:bg-white/[0.08]"
+                                >
+                                  Phone Calendar
+                                </a>
+                                <button
+                                  type="button"
+                                  disabled={Boolean(cancellingBookingId)}
+                                  onClick={() => handleCancelBooking(booking)}
+                                  className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-[#f1c9bf]/[0.35] px-3 text-xs font-semibold text-[#f1c9bf] transition hover:border-[#f1c9bf]/[0.6] hover:bg-[#f1c9bf]/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {isCancelling ? "Cancelling..." : "Cancel class"}
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {oldBookings.length > 0 ? (
+                    <section>
+                      <div className="flex items-center justify-between gap-4">
+                        <h3
+                          className="text-sm font-semibold uppercase tracking-[0.22em] text-[#f6e8e0]/[0.58]"
+                          style={{ fontFamily: '"Manrope", sans-serif' }}
+                        >
+                          Old bookings
+                        </h3>
+                        <span
+                          className="text-xs text-[#f6e8e0]/[0.45]"
+                          style={{ fontFamily: '"Manrope", sans-serif' }}
+                        >
+                          {oldBookings.length}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        {oldBookings.map((booking) => (
+                          <article
+                            key={booking.id}
+                            className="rounded-[22px] border border-white/[0.07] bg-black/20 p-4 sm:p-5"
                           >
-                            {isCancelling ? "Cancelling..." : "Cancel class"}
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <p
+                                  className="text-sm font-semibold text-[#f6e8e0]/[0.72]"
+                                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                                >
+                                  {booking.sessionLabel}
+                                </p>
+                                <p
+                                  className="mt-2 text-2xl leading-tight text-[#f6e8e0]/[0.72]"
+                                  style={{ fontFamily: '"Cormorant Garamond", serif' }}
+                                >
+                                  {formatBookingSummaryDate(booking.date)}
+                                </p>
+                                <p
+                                  className="mt-1 text-sm text-[#f6e8e0]/[0.5]"
+                                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                                >
+                                  {booking.time}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <span
+                                  className="rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f6e8e0]/[0.55]"
+                                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                                >
+                                  Past
+                                </span>
+                                <span
+                                  className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f6e8e0]/[0.38]"
+                                  style={{ fontFamily: '"Manrope", sans-serif' }}
+                                >
+                                  {booking.status === "waitlist" ? "Waitlist" : "Confirmed"}
+                                </span>
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
                 </div>
               ) : (
                 <p

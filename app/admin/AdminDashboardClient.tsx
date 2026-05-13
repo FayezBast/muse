@@ -925,7 +925,7 @@ export default function AdminPage() {
 
                   return (
                     <article
-                      key={`${slot.time}-${index}`}
+                      key={`${selectedScheduleDay}-${index}`}
                       className="rounded-[18px] border border-white/10 bg-white/[0.035] p-4"
                     >
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -959,7 +959,7 @@ export default function AdminPage() {
                         <div className="mt-3 flex flex-wrap gap-3">
                           {draftSettings.classTypes.map((classType) => (
                             <label
-                              key={`${slot.time}-${classType.id}`}
+                              key={classType.id}
                               className="inline-flex min-h-[40px] items-center gap-3 rounded-full border border-white/10 bg-black/20 px-4 text-sm font-semibold text-[#f6e8e0]/75 transition hover:border-white/20 hover:text-[#f6e8e0]"
                             >
                               <input

@@ -993,6 +993,75 @@ export async function getUserBookings(userId: string): Promise<UserBookingSummar
     .filter((booking): booking is UserBookingSummary => Boolean(booking));
 }
 
+export async function getUserBooking(
+  userId: string,
+  bookingId: unknown,
+): Promise<UserBookingSummary | undefined> {
+  if (!isValidBookingId(bookingId)) {
+    return undefined;
+  }
+
+  const normalizedBookingId = bookingId.trim();
+  const settings = await getStudioSettings();
+  const pool = getPool();
+
+  if (!pool) {
+    const bookings = await readLocalBookings();
+    const booking = bookings.find(
+      (storedBooking) =>
+        storedBooking.id === normalizedBookingId &&
+        storedBooking.userId === userId &&
+        (storedBooking.status === "confirmed" || storedBooking.status === "waitlist"),
+    );
+
+    return booking
+      ? buildUserBookingSummary(booking, settings.classTypes)
+      : undefined;
+  }
+
+  await ensureBookingSchema();
+
+  const result = await pool.query<{
+    id: string;
+    created_at: string | Date;
+    status: BookingStatus;
+    session: string;
+    class_date: string;
+    class_time: string;
+    price_cents: number;
+  }>(
+    `
+      SELECT
+        id::text AS id,
+        created_at,
+        status,
+        session,
+        to_char(class_date, 'YYYY-MM-DD') AS class_date,
+        class_time,
+        price_cents
+      FROM bookings
+      WHERE user_id = $1
+        AND id::text = $2
+        AND status IN ('confirmed', 'waitlist')
+      LIMIT 1;
+    `,
+    [userId, normalizedBookingId],
+  );
+  const row = result.rows[0];
+
+  return row
+    ? buildUserBookingSummary({
+        id: row.id,
+        createdAt: formatCreatedAt(row.created_at) ?? "",
+        status: row.status,
+        session: row.session,
+        classDate: row.class_date,
+        classTime: row.class_time,
+        priceCents: row.price_cents,
+      }, settings.classTypes)
+    : undefined;
+}
+
 export async function cancelUserBooking(
   userId: string,
   bookingId: unknown,
