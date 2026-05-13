@@ -112,11 +112,19 @@ type ApiErrorResponse = {
   error?: string;
 };
 
-const inputClassName =
-  "mt-2 w-full rounded-[18px] border border-white/10 bg-white/[0.055] px-4 py-3 text-sm text-[#f7e8e2] outline-none transition placeholder:text-[#f7e8e2]/35 focus:border-[#f1c9bf] focus:ring-4 focus:ring-[#f1c9bf]/15";
+const inputBaseClassName =
+  "w-full rounded-[18px] border border-white/10 bg-white/[0.055] px-4 py-3 text-sm text-[#f7e8e2] outline-none transition placeholder:text-[#f7e8e2]/35 focus:border-[#f1c9bf] focus:ring-4 focus:ring-[#f1c9bf]/15";
+const inputClassName = `mt-2 ${inputBaseClassName}`;
+const compactInputClassName = inputBaseClassName;
 
 const panelClassName =
   "rounded-[26px] border border-white/10 bg-white/[0.045] shadow-[0_24px_70px_rgba(0,0,0,0.34)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.055),transparent_100%)]";
+const TIME_HOUR_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index + 1));
+const TIME_MINUTE_OPTIONS = Array.from({ length: 12 }, (_, index) =>
+  String(index * 5).padStart(2, "0"),
+);
+const TIME_PERIOD_OPTIONS = ["AM", "PM"] as const;
+type TimePeriod = (typeof TIME_PERIOD_OPTIONS)[number];
 
 function createDefaultSettings(): StudioSettings {
   return {
@@ -156,33 +164,67 @@ function parsePriceCents(value: string) {
   return Math.max(0, Math.round(parsed * 100));
 }
 
-function timeInputValue(time: string) {
+function timePartsFromDisplay(time: string) {
   const match = time.match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
 
   if (!match) {
-    return "";
+    return {
+      hour: "12",
+      minute: "00",
+      period: "PM" as TimePeriod,
+    };
   }
 
   const hour = Number(match[1]);
   const minute = match[2];
-  const period = match[3].toUpperCase();
-  const hour24 = period === "PM" ? (hour % 12) + 12 : hour % 12;
+  const period = match[3].toUpperCase() === "AM" ? "AM" : "PM";
 
-  return `${String(hour24).padStart(2, "0")}:${minute}`;
+  return {
+    hour: String(Math.min(Math.max(hour, 1), 12)),
+    minute,
+    period: period as TimePeriod,
+  };
 }
 
-function displayTimeFromInput(value: string, fallback: string) {
-  const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+function displayTimeFromParts(parts: {
+  hour: string;
+  minute: string;
+  period: TimePeriod;
+}) {
+  return `${Number(parts.hour) || 12}:${parts.minute} ${parts.period}`;
+}
 
-  if (!match) {
-    return fallback;
+function getMinuteOptions(currentMinute: string) {
+  return TIME_MINUTE_OPTIONS.includes(currentMinute)
+    ? TIME_MINUTE_OPTIONS
+    : [...TIME_MINUTE_OPTIONS, currentMinute].toSorted(
+        (first, second) => Number(first) - Number(second),
+      );
+}
+
+function getTimePartValue(
+  parts: ReturnType<typeof timePartsFromDisplay>,
+  key: "hour" | "minute" | "period",
+  value: string,
+): ReturnType<typeof timePartsFromDisplay> {
+  if (key === "period") {
+    return {
+      ...parts,
+      period: (value === "AM" ? "AM" : "PM") as TimePeriod,
+    };
   }
 
-  const hour24 = Number(match[1]);
-  const period = hour24 >= 12 ? "PM" : "AM";
-  const hour12 = hour24 % 12 || 12;
+  if (key === "hour") {
+    return {
+      ...parts,
+      hour: TIME_HOUR_OPTIONS.includes(value) ? value : parts.hour,
+    };
+  }
 
-  return `${hour12}:${match[2]} ${period}`;
+  return {
+    ...parts,
+    minute: getMinuteOptions(parts.minute).includes(value) ? value : parts.minute,
+  };
 }
 
 function createNewTimeSlot(existingSlots: readonly StudioTimeSlot[]): StudioTimeSlot {
@@ -385,7 +427,7 @@ export default function AdminPage() {
 
   function updateScheduleTimeSlot(
     index: number,
-    key: "time" | "title" | "subtitle" | "duration",
+    key: "time" | "title" | "duration",
     value: string,
   ) {
     setDraftSettings((current) => ({
@@ -401,8 +443,39 @@ export default function AdminPage() {
 
                 return preserveScheduleSlotKey(day.day, slot, {
                   ...slot,
-                  [key]:
-                    key === "time" ? displayTimeFromInput(value, slot.time) : value,
+                  [key]: value,
+                });
+              })
+            : day.timeSlots,
+      })),
+    }));
+  }
+
+  function updateScheduleTimePart(
+    index: number,
+    key: "hour" | "minute" | "period",
+    value: string,
+  ) {
+    setDraftSettings((current) => ({
+      ...current,
+      weeklySchedule: current.weeklySchedule.map((day) => ({
+        ...day,
+        timeSlots:
+          day.day === selectedScheduleDay
+            ? day.timeSlots.map((slot, itemIndex) => {
+                if (itemIndex !== index) {
+                  return slot;
+                }
+
+                const nextParts = getTimePartValue(
+                  timePartsFromDisplay(slot.time),
+                  key,
+                  value,
+                );
+
+                return preserveScheduleSlotKey(day.day, slot, {
+                  ...slot,
+                  time: displayTimeFromParts(nextParts),
                 });
               })
             : day.timeSlots,
@@ -971,6 +1044,8 @@ export default function AdminPage() {
                     slot.classTypeIds.length > 0
                       ? slot.classTypeIds
                       : draftSettings.classTypes.map((classType) => classType.id);
+                  const timeParts = timePartsFromDisplay(slot.time);
+                  const minuteOptions = getMinuteOptions(timeParts.minute);
 
                   return (
                     <article
@@ -978,17 +1053,53 @@ export default function AdminPage() {
                       className="rounded-[18px] border border-white/10 bg-white/[0.035] p-4"
                     >
                       <div className="grid gap-4 sm:grid-cols-2">
-                        <label className="block text-sm text-[#f6e8e0]/65">
-                          Time
-                          <input
-                            type="time"
-                            value={timeInputValue(slot.time)}
-                            onChange={(event) =>
-                              updateScheduleTimeSlot(index, "time", event.target.value)
-                            }
-                            className={inputClassName}
-                          />
-                        </label>
+                        <fieldset className="block text-sm text-[#f6e8e0]/65">
+                          <legend>Time</legend>
+                          <div className="mt-2 grid grid-cols-[0.9fr_1fr_1fr] gap-2">
+                            <select
+                              aria-label="Class hour"
+                              value={timeParts.hour}
+                              onChange={(event) =>
+                                updateScheduleTimePart(index, "hour", event.target.value)
+                              }
+                              className={compactInputClassName}
+                            >
+                              {TIME_HOUR_OPTIONS.map((hour) => (
+                                <option key={hour} value={hour}>
+                                  {hour}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              aria-label="Class minute"
+                              value={timeParts.minute}
+                              onChange={(event) =>
+                                updateScheduleTimePart(index, "minute", event.target.value)
+                              }
+                              className={compactInputClassName}
+                            >
+                              {minuteOptions.map((minute) => (
+                                <option key={minute} value={minute}>
+                                  {minute}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              aria-label="Class period"
+                              value={timeParts.period}
+                              onChange={(event) =>
+                                updateScheduleTimePart(index, "period", event.target.value)
+                              }
+                              className={compactInputClassName}
+                            >
+                              {TIME_PERIOD_OPTIONS.map((period) => (
+                                <option key={period} value={period}>
+                                  {period}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </fieldset>
                         <label className="block text-sm text-[#f6e8e0]/65">
                           Duration
                           <input
@@ -1031,16 +1142,6 @@ export default function AdminPage() {
                           value={slot.title}
                           onChange={(event) =>
                             updateScheduleTimeSlot(index, "title", event.target.value)
-                          }
-                          className={inputClassName}
-                        />
-                      </label>
-                      <label className="mt-4 block text-sm text-[#f6e8e0]/65">
-                        Description
-                        <input
-                          value={slot.subtitle}
-                          onChange={(event) =>
-                            updateScheduleTimeSlot(index, "subtitle", event.target.value)
                           }
                           className={inputClassName}
                         />

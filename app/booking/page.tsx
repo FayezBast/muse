@@ -1755,12 +1755,6 @@ export default function BookingPage() {
                             >
                               {slot.title}
                             </h3>
-                            <p
-                              className="mt-2 text-sm leading-7 text-[#f6e8e0]/[0.72] sm:text-base"
-                              style={{ fontFamily: '"Manrope", sans-serif' }}
-                            >
-                              {slot.subtitle}
-                            </p>
                           </div>
 
                           <AuthBookingButton
