@@ -1496,14 +1496,10 @@ export default function BookingPage() {
             </p>
           </motion.div>
 
-          <motion.div
-            variants={stagger}
-            className="mt-8 grid gap-5 md:grid-cols-2"
-          >
+          <div className="mt-8 grid gap-5 md:grid-cols-2">
             {studioPackages.map((pkg) => (
               <motion.article
-                key={pkg.title}
-                variants={fadeUp}
+                key={pkg.id}
                 whileHover={shouldReduceMotion ? undefined : { y: -6, scale: 1.012 }}
                 className={`rounded-[30px] border p-6 sm:p-8 ${
                   pkg.featured
@@ -1553,7 +1549,7 @@ export default function BookingPage() {
                 </ul>
               </motion.article>
             ))}
-          </motion.div>
+          </div>
         </motion.section>
 
         <motion.section
@@ -1741,7 +1737,7 @@ export default function BookingPage() {
                         }
                         className={`${cardShellClassName} p-4 sm:p-6`}
                       >
-                        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
                           <div className="max-w-2xl">
                             <p
                               className="text-[11px] uppercase tracking-[0.24em] text-[#f1c9bf] sm:text-xs sm:tracking-[0.3em]"
@@ -1756,21 +1752,6 @@ export default function BookingPage() {
                               {slot.title}
                             </h3>
                           </div>
-
-                          <AuthBookingButton
-                            whileTap={{ scale: 0.98 }}
-                            disabled={slotUnavailable}
-                            onClick={() => prefillBookingForm(slot)}
-                            authRedirectUrl={buildBookingAuthRedirectUrl(slot)}
-                            className={`inline-flex min-h-[48px] shrink-0 items-center justify-center rounded-full border px-5 py-3 text-sm font-semibold transition lg:min-w-[130px] ${
-                              slotUnavailable
-                                ? "cursor-not-allowed border-white/[0.1] bg-white/[0.04] text-[#f6e8e0]/[0.42]"
-                                : "border-white/[0.18] bg-transparent text-[#f6e8e0] hover:border-transparent hover:bg-[linear-gradient(135deg,#f7e8e2,#dcb5aa)] hover:text-[#2a0711]"
-                            }`}
-                            style={{ fontFamily: '"Manrope", sans-serif' }}
-                          >
-                            {slotUnavailable ? "Unavailable" : "Book Time"}
-                          </AuthBookingButton>
                         </div>
 
                         <div className="mt-5 overflow-hidden rounded-[24px] border border-white/[0.1]">
